@@ -144,14 +144,10 @@ def stream_estimation(transcription: str) -> Generator[bytes, None, None]:
 
     log.info("stream_estimation_start", provider=settings.LLM_PROVIDER, model=settings.LLM_MODEL)
 
-    try:
-        if settings.LLM_PROVIDER == "openai":
-            yield from _stream_openai(system_prompt, transcription)
-        else:
-            yield from _stream_anthropic(system_prompt, transcription)
-    except Exception as exc:
-        log.error("stream_estimation_failed", error=str(exc), provider=settings.LLM_PROVIDER)
-        raise LLMServiceError(f"LLM streaming failed: {exc}") from exc
+    if settings.LLM_PROVIDER == "openai":
+        yield from _stream_openai(system_prompt, transcription)
+    else:
+        yield from _stream_anthropic(system_prompt, transcription)
 
 
 def _stream_openai(system_prompt: str, transcription: str) -> Generator[bytes, None, None]:
@@ -173,28 +169,33 @@ def _stream_openai(system_prompt: str, transcription: str) -> Generator[bytes, N
         ],
     )
 
-    for chunk in stream:
-        if chunk.choices and chunk.choices[0].delta.content:
-            yield json.dumps({"t": chunk.choices[0].delta.content}).encode() + b"\n"
-        if chunk.model:
-            model_used = chunk.model
-        if chunk.usage:
-            usage_data = {
-                "input_tokens": chunk.usage.prompt_tokens,
-                "output_tokens": chunk.usage.completion_tokens,
-                "total_tokens": chunk.usage.total_tokens,
-            }
-
-    usage_data.setdefault("input_tokens", 0)
-    usage_data.setdefault("output_tokens", 0)
-    usage_data.setdefault("total_tokens", 0)
-
-    yield json.dumps({
-        "done": True,
-        "model": model_used,
-        "provider": "openai",
-        "usage": usage_data,
-    }).encode() + b"\n"
+    try:
+        for chunk in stream:
+            if chunk.choices and chunk.choices[0].delta.content:
+                yield json.dumps({"t": chunk.choices[0].delta.content}).encode() + b"\n"
+            if chunk.model:
+                model_used = chunk.model
+            if chunk.usage:
+                usage_data = {
+                    "input_tokens": chunk.usage.prompt_tokens,
+                    "output_tokens": chunk.usage.completion_tokens,
+                    "total_tokens": chunk.usage.total_tokens,
+                }
+    except LLMServiceError:
+        raise
+    except Exception as exc:
+        log.error("stream_openai_failed", error=str(exc))
+        raise LLMServiceError(f"OpenAI streaming failed: {exc}") from exc
+    finally:
+        usage_data.setdefault("input_tokens", 0)
+        usage_data.setdefault("output_tokens", 0)
+        usage_data.setdefault("total_tokens", 0)
+        yield json.dumps({
+            "done": True,
+            "model": model_used,
+            "provider": "openai",
+            "usage": usage_data,
+        }).encode() + b"\n"
 
 
 def _stream_anthropic(system_prompt: str, transcription: str) -> Generator[bytes, None, None]:
@@ -203,23 +204,29 @@ def _stream_anthropic(system_prompt: str, transcription: str) -> Generator[bytes
     settings = get_settings()
     client = Anthropic(api_key=settings.ANTHROPIC_API_KEY)
 
-    with client.messages.stream(
-        model=settings.LLM_MODEL,
-        max_tokens=MAX_TOKENS,
-        system=system_prompt,
-        messages=[{"role": "user", "content": transcription}],
-    ) as stream:
-        for text in stream.text_stream:
-            yield json.dumps({"t": text}).encode() + b"\n"
+    try:
+        with client.messages.stream(
+            model=settings.LLM_MODEL,
+            max_tokens=MAX_TOKENS,
+            system=system_prompt,
+            messages=[{"role": "user", "content": transcription}],
+        ) as stream:
+            for text in stream.text_stream:
+                yield json.dumps({"t": text}).encode() + b"\n"
 
-        msg = stream.get_final_message()
-        yield json.dumps({
-            "done": True,
-            "model": msg.model,
-            "provider": "anthropic",
-            "usage": {
-                "input_tokens": msg.usage.input_tokens,
-                "output_tokens": msg.usage.output_tokens,
-                "total_tokens": msg.usage.input_tokens + msg.usage.output_tokens,
-            },
-        }).encode() + b"\n"
+            msg = stream.get_final_message()
+            yield json.dumps({
+                "done": True,
+                "model": msg.model,
+                "provider": "anthropic",
+                "usage": {
+                    "input_tokens": msg.usage.input_tokens,
+                    "output_tokens": msg.usage.output_tokens,
+                    "total_tokens": msg.usage.input_tokens + msg.usage.output_tokens,
+                },
+            }).encode() + b"\n"
+    except LLMServiceError:
+        raise
+    except Exception as exc:
+        log.error("stream_anthropic_failed", error=str(exc))
+        raise LLMServiceError(f"Anthropic streaming failed: {exc}") from exc
