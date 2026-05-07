@@ -1,3 +1,4 @@
+import asyncio
 import json
 
 import structlog
@@ -32,6 +33,7 @@ async def stream_estimation_endpoint(request: EstimationRequest) -> StreamingRes
         try:
             for chunk in generate_stream(request.transcription):
                 yield chunk
+                await asyncio.sleep(0)  # flush write buffer before next blocking SDK call
         except LLMServiceError as exc:
             log.error("stream_endpoint_error", error=str(exc))
             yield json.dumps({"error": str(exc)}).encode() + b"\n"
