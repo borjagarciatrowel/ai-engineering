@@ -29,7 +29,7 @@ def stream_from_api(transcription: str):
         "POST",
         f"{BACKEND_URL}/api/v1/estimate/stream",
         json={"transcription": transcription},
-        timeout=120,
+        timeout=httpx.Timeout(connect=5.0, read=120.0, write=5.0, pool=5.0),
     ) as response:
         response.raise_for_status()
         for line in response.iter_lines():
@@ -98,6 +98,14 @@ if prompt := st.chat_input("Pega aquí la transcripción de la reunión..."):
             "output_tokens": pending.get("output_tokens", 0),
             "response_time": response_time,
         }
+    except httpx.ConnectError:
+        st.error(f"No se puede conectar al backend en {BACKEND_URL}. ¿Está el servicio corriendo?")
+    except httpx.ConnectTimeout:
+        st.error(f"Timeout al conectar con {BACKEND_URL} (5s). Verifica que el backend esté disponible.")
+    except httpx.HTTPStatusError as e:
+        st.error(f"Error del backend: {e.response.status_code}")
+    except Exception as e:
+        st.error(f"Error inesperado: {e}")
     finally:
         st.session_state.pop("_pending_metrics", None)
 
