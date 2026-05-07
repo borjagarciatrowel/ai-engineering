@@ -159,7 +159,7 @@ def _stream_openai(system_prompt: str, transcription: str) -> Generator[bytes, N
     usage_data: dict = {}
     _error_occurred = False
     try:
-        stream = client.chat.completions.create(
+        with client.chat.completions.create(
             model=settings.LLM_MODEL,
             max_tokens=MAX_TOKENS,
             stream=True,
@@ -168,18 +168,18 @@ def _stream_openai(system_prompt: str, transcription: str) -> Generator[bytes, N
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": transcription},
             ],
-        )
-        for chunk in stream:
-            if chunk.choices and chunk.choices[0].delta.content:
-                yield json.dumps({"t": chunk.choices[0].delta.content}).encode() + b"\n"
-            if chunk.model:
-                model_used = chunk.model
-            if chunk.usage:
-                usage_data = {
-                    "input_tokens": chunk.usage.prompt_tokens,
-                    "output_tokens": chunk.usage.completion_tokens,
-                    "total_tokens": chunk.usage.total_tokens,
-                }
+        ) as stream:
+            for chunk in stream:
+                if chunk.choices and chunk.choices[0].delta.content:
+                    yield json.dumps({"t": chunk.choices[0].delta.content}).encode() + b"\n"
+                if chunk.model:
+                    model_used = chunk.model
+                if chunk.usage:
+                    usage_data = {
+                        "input_tokens": chunk.usage.prompt_tokens,
+                        "output_tokens": chunk.usage.completion_tokens,
+                        "total_tokens": chunk.usage.total_tokens,
+                    }
     except LLMServiceError:
         _error_occurred = True
         raise
