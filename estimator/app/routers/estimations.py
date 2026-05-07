@@ -1,3 +1,5 @@
+import json
+
 import structlog
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
@@ -25,10 +27,13 @@ async def create_estimation(request: EstimationRequest) -> EstimationResponse:
 @router.post("/estimate/stream")
 async def stream_estimation_endpoint(request: EstimationRequest) -> StreamingResponse:
     """Stream a software estimation as NDJSON (one JSON object per line)."""
-    try:
-        generator = generate_stream(request.transcription)
-    except LLMServiceError as exc:
-        log.error("stream_endpoint_error", error=str(exc))
-        raise HTTPException(status_code=500, detail=str(exc))
 
-    return StreamingResponse(generator, media_type="application/x-ndjson")
+    async def _safe_stream():
+        try:
+            for chunk in generate_stream(request.transcription):
+                yield chunk
+        except LLMServiceError as exc:
+            log.error("stream_endpoint_error", error=str(exc))
+            yield json.dumps({"error": str(exc)}).encode() + b"\n"
+
+    return StreamingResponse(_safe_stream(), media_type="application/x-ndjson")
