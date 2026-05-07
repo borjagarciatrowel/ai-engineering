@@ -1,13 +1,11 @@
+import json
+import os
 import time
 
+import httpx
 import streamlit as st
-from dotenv import load_dotenv
 
-from app.config import get_settings
-from app.context.examples import ESTIMATION_EXAMPLES
-from app.services.llm_service import MAX_TOKENS, build_system_prompt
-
-load_dotenv()
+BACKEND_URL = os.getenv("BACKEND_URL", "http://estimator:8000")
 
 st.set_page_config(
     page_title="Estimador de Software",
@@ -15,84 +13,46 @@ st.set_page_config(
     layout="wide",
 )
 
-SYSTEM_PROMPT = build_system_prompt()
-
 if "messages" not in st.session_state:
     st.session_state.messages = []
 if "last_metrics" not in st.session_state:
     st.session_state.last_metrics = None
 
 
-def stream_openai(messages: list[dict]) -> tuple:
-    from openai import OpenAI
+def stream_from_api(transcription: str):
+    """Call FastAPI /api/v1/estimate/stream and yield text tokens.
 
-    settings = get_settings()
-    client = OpenAI(api_key=settings.OPENAI_API_KEY)
-    usage_data = {}
-
-    def generator():
-        stream = client.chat.completions.create(
-            model=settings.LLM_MODEL,
-            max_tokens=MAX_TOKENS,
-            stream=True,
-            stream_options={"include_usage": True},
-            messages=[{"role": "system", "content": SYSTEM_PROMPT}, *messages],
-        )
-        for chunk in stream:
-            if chunk.choices and chunk.choices[0].delta.content:
-                yield chunk.choices[0].delta.content
-            if chunk.usage:
-                usage_data["input_tokens"] = chunk.usage.prompt_tokens
-                usage_data["output_tokens"] = chunk.usage.completion_tokens
-        usage_data.setdefault("input_tokens", 0)
-        usage_data.setdefault("output_tokens", 0)
-
-    return generator(), usage_data, settings.LLM_MODEL
-
-
-def stream_anthropic(messages: list[dict]) -> tuple:
-    from anthropic import Anthropic
-
-    settings = get_settings()
-    client = Anthropic(api_key=settings.ANTHROPIC_API_KEY)
-    usage_data = {}
-
-    def generator():
-        with client.messages.stream(
-            model=settings.LLM_MODEL,
-            max_tokens=MAX_TOKENS,
-            system=SYSTEM_PROMPT,
-            messages=messages,
-        ) as stream:
-            for text in stream.text_stream:
-                yield text
-            msg = stream.get_final_message()
-            usage_data["input_tokens"] = msg.usage.input_tokens
-            usage_data["output_tokens"] = msg.usage.output_tokens
-
-    return generator(), usage_data, settings.LLM_MODEL
+    Stores final metadata in st.session_state._pending_metrics.
+    Raises httpx.HTTPError on connection failure.
+    """
+    with httpx.stream(
+        "POST",
+        f"{BACKEND_URL}/api/v1/estimate/stream",
+        json={"transcription": transcription},
+        timeout=120,
+    ) as response:
+        response.raise_for_status()
+        for line in response.iter_lines():
+            if not line:
+                continue
+            chunk = json.loads(line)
+            if "t" in chunk:
+                yield chunk["t"]
+            elif chunk.get("done"):
+                st.session_state._pending_metrics = {
+                    "model": chunk.get("model", "unknown"),
+                    "input_tokens": chunk.get("usage", {}).get("input_tokens", 0),
+                    "output_tokens": chunk.get("usage", {}).get("output_tokens", 0),
+                }
+            elif "error" in chunk:
+                yield f"\n\n⚠️ Error: {chunk['error']}"
 
 
-# Sidebar — Level 3
+# Sidebar
 with st.sidebar:
-    st.header("🔍 Contexto CAG")
-
-    with st.expander("System Prompt", expanded=False):
-        st.text_area(
-            "system_prompt",
-            SYSTEM_PROMPT,
-            height=250,
-            disabled=True,
-            label_visibility="collapsed",
-        )
-
-    with st.expander(f"Ejemplos de referencia ({len(ESTIMATION_EXAMPLES)})", expanded=False):
-        for i, ex in enumerate(ESTIMATION_EXAMPLES):
-            st.markdown(f"**Ejemplo {i + 1}:** {ex['meeting_summary'][:150]}…")
+    st.header("📊 Métricas")
 
     if st.session_state.last_metrics:
-        st.divider()
-        st.subheader("📊 Última llamada")
         m = st.session_state.last_metrics
         st.metric("Modelo", m["model"])
         col1, col2 = st.columns(2)
@@ -107,7 +67,7 @@ with st.sidebar:
         st.rerun()
 
 
-# Main chat interface
+# Main chat
 st.title("🏗️ Estimador de Software")
 st.caption("Pega la transcripción de una reunión y obtén una estimación detallada del proyecto.")
 
@@ -121,22 +81,17 @@ if prompt := st.chat_input("Pega aquí la transcripción de la reunión..."):
         st.markdown(prompt)
 
     with st.chat_message("assistant"):
-        settings = get_settings()
         start_time = time.time()
-
-        if settings.LLM_PROVIDER == "anthropic":
-            gen, usage_data, model = stream_anthropic(st.session_state.messages)
-        else:
-            gen, usage_data, model = stream_openai(st.session_state.messages)
-
-        full_response = st.write_stream(gen)
+        full_response = st.write_stream(stream_from_api(prompt))
         response_time = time.time() - start_time
 
     st.session_state.messages.append({"role": "assistant", "content": full_response})
+
+    pending = st.session_state.pop("_pending_metrics", {})
     st.session_state.last_metrics = {
-        "model": model,
-        "input_tokens": usage_data.get("input_tokens", 0),
-        "output_tokens": usage_data.get("output_tokens", 0),
+        "model": pending.get("model", "unknown"),
+        "input_tokens": pending.get("input_tokens", 0),
+        "output_tokens": pending.get("output_tokens", 0),
         "response_time": response_time,
     }
     st.rerun()

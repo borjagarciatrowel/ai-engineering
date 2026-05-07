@@ -38,6 +38,8 @@ services:
       - "8501:8501"
     env_file:
       - .env
+    environment:
+      - BACKEND_URL=http://estimator:8000
     volumes:
       - ./app:/app/app
       - ./streamlit_app.py:/app/streamlit_app.py
