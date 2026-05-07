@@ -35,7 +35,10 @@ def stream_from_api(transcription: str):
         for line in response.iter_lines():
             if not line:
                 continue
-            chunk = json.loads(line)
+            try:
+                chunk = json.loads(line)
+            except json.JSONDecodeError:
+                continue
             if "t" in chunk:
                 yield chunk["t"]
             elif chunk.get("done"):
@@ -80,18 +83,22 @@ if prompt := st.chat_input("Pega aquí la transcripción de la reunión..."):
     with st.chat_message("user"):
         st.markdown(prompt)
 
-    with st.chat_message("assistant"):
-        start_time = time.time()
-        full_response = st.write_stream(stream_from_api(prompt))
-        response_time = time.time() - start_time
+    try:
+        with st.chat_message("assistant"):
+            start_time = time.time()
+            full_response = st.write_stream(stream_from_api(prompt))
+            response_time = time.time() - start_time
 
-    st.session_state.messages.append({"role": "assistant", "content": full_response})
+        st.session_state.messages.append({"role": "assistant", "content": full_response})
 
-    pending = st.session_state.pop("_pending_metrics", {})
-    st.session_state.last_metrics = {
-        "model": pending.get("model", "unknown"),
-        "input_tokens": pending.get("input_tokens", 0),
-        "output_tokens": pending.get("output_tokens", 0),
-        "response_time": response_time,
-    }
+        pending = st.session_state.pop("_pending_metrics", {})
+        st.session_state.last_metrics = {
+            "model": pending.get("model", "unknown"),
+            "input_tokens": pending.get("input_tokens", 0),
+            "output_tokens": pending.get("output_tokens", 0),
+            "response_time": response_time,
+        }
+    finally:
+        st.session_state.pop("_pending_metrics", None)
+
     st.rerun()
