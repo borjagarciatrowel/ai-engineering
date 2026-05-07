@@ -157,19 +157,18 @@ def _stream_openai(system_prompt: str, transcription: str) -> Generator[bytes, N
     client = OpenAI(api_key=settings.OPENAI_API_KEY)
     model_used = settings.LLM_MODEL
     usage_data: dict = {}
-
-    stream = client.chat.completions.create(
-        model=settings.LLM_MODEL,
-        max_tokens=MAX_TOKENS,
-        stream=True,
-        stream_options={"include_usage": True},
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": transcription},
-        ],
-    )
-
+    _error_occurred = False
     try:
+        stream = client.chat.completions.create(
+            model=settings.LLM_MODEL,
+            max_tokens=MAX_TOKENS,
+            stream=True,
+            stream_options={"include_usage": True},
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": transcription},
+            ],
+        )
         for chunk in stream:
             if chunk.choices and chunk.choices[0].delta.content:
                 yield json.dumps({"t": chunk.choices[0].delta.content}).encode() + b"\n"
@@ -182,20 +181,23 @@ def _stream_openai(system_prompt: str, transcription: str) -> Generator[bytes, N
                     "total_tokens": chunk.usage.total_tokens,
                 }
     except LLMServiceError:
+        _error_occurred = True
         raise
     except Exception as exc:
+        _error_occurred = True
         log.error("stream_openai_failed", error=str(exc))
         raise LLMServiceError(f"OpenAI streaming failed: {exc}") from exc
     finally:
-        usage_data.setdefault("input_tokens", 0)
-        usage_data.setdefault("output_tokens", 0)
-        usage_data.setdefault("total_tokens", 0)
-        yield json.dumps({
-            "done": True,
-            "model": model_used,
-            "provider": "openai",
-            "usage": usage_data,
-        }).encode() + b"\n"
+        if not _error_occurred:
+            usage_data.setdefault("input_tokens", 0)
+            usage_data.setdefault("output_tokens", 0)
+            usage_data.setdefault("total_tokens", 0)
+            yield json.dumps({
+                "done": True,
+                "model": model_used,
+                "provider": "openai",
+                "usage": usage_data,
+            }).encode() + b"\n"
 
 
 def _stream_anthropic(system_prompt: str, transcription: str) -> Generator[bytes, None, None]:
