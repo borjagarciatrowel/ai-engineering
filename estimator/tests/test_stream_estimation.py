@@ -39,8 +39,16 @@ def test_stream_endpoint_returns_ndjson(client: TestClient) -> None:
 
 
 def test_stream_endpoint_rejects_short_transcription(client: TestClient) -> None:
-    response = client.post("/api/v1/estimate/stream", json={"transcription": "too short"})
+    # Exactly 49 chars — one below min_length=50 — must fail
+    too_short = "a" * 49
+    response = client.post("/api/v1/estimate/stream", json={"transcription": too_short})
     assert response.status_code == 422
+
+    # Exactly 50 chars — at the boundary — schema accepts it (LLM call mocked out)
+    at_boundary = "a" * 50
+    with patch("app.routers.estimations.generate_stream", side_effect=_fake_stream):
+        with client.stream("POST", "/api/v1/estimate/stream", json={"transcription": at_boundary}) as response:
+            assert response.status_code == 200
 
 
 def test_stream_endpoint_handles_llm_error(client: TestClient) -> None:
