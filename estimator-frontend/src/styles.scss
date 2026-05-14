@@ -1,20 +1,212 @@
 @use '@angular/material' as mat;
 
 html {
-  color-scheme: light;
+  color-scheme: dark;
+
   @include mat.theme((
     color: (
-      primary: mat.$azure-palette,
-      tertiary: mat.$violet-palette,
+      theme-type: dark,
+      primary: mat.$violet-palette,
+      tertiary: mat.$azure-palette,
     ),
     typography: Inter,
-    density: 0,
+    density: -1,
   ));
+}
+
+:root {
+  /* Base surfaces */
+  --bg-base: #08090f;
+  --bg-surface: #0f111a;
+  --bg-elevated: #161927;
+  --bg-elevated-2: #1c2030;
+  --bg-glass: rgba(20, 23, 34, 0.72);
+
+  /* Borders */
+  --border-subtle: rgba(255, 255, 255, 0.04);
+  --border-default: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.14);
+
+  /* Text */
+  --text-primary: #ecedf3;
+  --text-secondary: #a9aebd;
+  --text-muted: #6c7186;
+  --text-faint: #4a4f63;
+
+  /* Accent (indigo / violet) */
+  --accent: #8b94ff;
+  --accent-strong: #a8b0ff;
+  --accent-dim: #6b75e8;
+  --accent-soft: rgba(139, 148, 255, 0.14);
+  --accent-glow: rgba(139, 148, 255, 0.32);
+
+  /* Signal colors */
+  --danger: #f87171;
+  --danger-soft: rgba(248, 113, 113, 0.12);
+  --success: #4ade80;
+  --warning: #fbbf24;
+
+  /* Shape */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 22px;
+
+  /* Effects */
+  --shadow-soft: 0 1px 0 rgba(255, 255, 255, 0.03) inset,
+                 0 12px 32px rgba(0, 0, 0, 0.42);
+  --shadow-elevated: 0 1px 0 rgba(255, 255, 255, 0.04) inset,
+                     0 20px 48px rgba(0, 0, 0, 0.55);
+
+  /* Material variable overrides */
+  --mat-toolbar-container-background-color: transparent;
+  --mat-toolbar-container-text-color: var(--text-primary);
 }
 
 html, body {
   height: 100%;
   margin: 0;
+  overflow: hidden;
   font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-  background-color: #f5f5f7;
+  background-color: var(--bg-base);
+  background-image:
+    radial-gradient(1200px 600px at 12% -10%, rgba(139, 148, 255, 0.08), transparent 60%),
+    radial-gradient(900px 500px at 100% 0%, rgba(100, 200, 255, 0.05), transparent 60%);
+  background-attachment: fixed;
+  color: var(--text-primary);
+  font-feature-settings: 'cv11', 'ss01', 'ss03';
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+::selection {
+  background-color: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+/* Scrollbars */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.14);
+  background-clip: padding-box;
+  border: 2px solid transparent;
+}
+
+/* Card override: tighter, darker, less default Material weight */
+.mat-mdc-card.mat-mdc-card-outlined {
+  --mdc-outlined-card-container-color: var(--bg-surface);
+  --mdc-outlined-card-outline-color: var(--border-default);
+  --mdc-outlined-card-outline-width: 1px;
+  --mat-card-title-text-color: var(--text-primary);
+  --mat-card-subtitle-text-color: var(--text-secondary);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-soft);
+  transition: border-color 160ms ease, transform 160ms ease;
+}
+
+.mat-mdc-card-header {
+  padding: 1.25rem 1.25rem 0.5rem;
+}
+
+.mat-mdc-card-content {
+  padding: 0 1.25rem 1.25rem;
+}
+
+.mat-mdc-card-title {
+  font-size: 1rem !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em;
+}
+
+.mat-mdc-card-subtitle {
+  font-size: 0.82rem !important;
+  margin-top: 0.25rem !important;
+  color: var(--text-muted) !important;
+}
+
+/* Form fields: refine the outlined look */
+.mat-mdc-form-field {
+  width: 100%;
+}
+
+.mat-mdc-form-field.mat-form-field-appearance-outline {
+  --mdc-outlined-text-field-outline-color: var(--border-default);
+  --mdc-outlined-text-field-hover-outline-color: var(--border-strong);
+  --mdc-outlined-text-field-focus-outline-color: var(--accent);
+  --mdc-outlined-text-field-container-shape: 10px;
+  --mat-form-field-container-text-size: 0.92rem;
+  --mat-form-field-subscript-text-size: 0.72rem;
+}
+
+.mat-mdc-form-field .mat-mdc-text-field-wrapper {
+  background-color: rgba(255, 255, 255, 0.02);
+  border-radius: 10px;
+}
+
+.mat-mdc-form-field-hint {
+  color: var(--text-faint) !important;
+}
+
+/* Buttons */
+.mat-mdc-raised-button,
+.mat-mdc-unelevated-button,
+.mat-mdc-outlined-button,
+.mat-mdc-button {
+  --mdc-filled-button-container-shape: 10px;
+  --mdc-outlined-button-container-shape: 10px;
+  --mdc-text-button-container-shape: 10px;
+  letter-spacing: -0.005em !important;
+  font-weight: 500 !important;
+}
+
+.mat-mdc-unelevated-button.mat-primary {
+  --mdc-filled-button-container-color: var(--accent);
+  --mdc-filled-button-label-text-color: #0a0c14;
+}
+
+.mat-mdc-unelevated-button.mat-primary:hover:not(:disabled) {
+  --mdc-filled-button-container-color: var(--accent-strong);
+}
+
+.mat-mdc-outlined-button {
+  --mdc-outlined-button-outline-color: var(--border-strong);
+  --mdc-outlined-button-label-text-color: var(--text-secondary);
+}
+.mat-mdc-outlined-button:hover:not(:disabled) {
+  --mdc-outlined-button-label-text-color: var(--text-primary);
+  background-color: rgba(255, 255, 255, 0.04);
+}
+
+/* Progress bar accent */
+.mat-mdc-progress-bar {
+  --mdc-linear-progress-active-indicator-color: var(--accent);
+  --mdc-linear-progress-track-color: rgba(255, 255, 255, 0.06);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+/* Material select panel */
+.mat-mdc-select-panel {
+  background-color: var(--bg-elevated) !important;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md) !important;
+}
+
+.mat-mdc-option {
+  --mat-option-label-text-color: var(--text-primary);
+}
+.mat-mdc-option.mdc-list-item--selected:not(.mdc-list-item--disabled) .mdc-list-item__primary-text {
+  color: var(--accent-strong) !important;
 }

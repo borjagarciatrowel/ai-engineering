@@ -13,9 +13,13 @@ export interface StreamEvent {
 export class EstimationService {
   private readonly baseUrl = '/api/v1';
 
-  async *stream(request: EstimationRequest): AsyncGenerator<StreamEvent, void, void> {
+  async *stream(
+    request: EstimationRequest,
+    promptVersion: string = 'v1',
+  ): AsyncGenerator<StreamEvent, void, void> {
     const startedAt = performance.now();
-    const response = await fetch(`${this.baseUrl}/estimate/stream`, {
+    const url = `${this.baseUrl}/estimate/stream?prompt_version=${encodeURIComponent(promptVersion)}`;
+    const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(request),
@@ -34,7 +38,7 @@ export class EstimationService {
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
-    let promptVersion = 'v1';
+    let activeVersion = promptVersion;
 
     try {
       while (true) {
@@ -52,19 +56,16 @@ export class EstimationService {
           if (!rawLine) {
             continue;
           }
-          const event = this.parseLine(rawLine, promptVersion, startedAt);
+          const event = this.parseLine(rawLine, activeVersion, startedAt);
           if (event.type === 'metrics' && event.metrics) {
-            promptVersion = event.metrics.prompt_version;
-          } else if (event.type === 'token' && event.text === '__PROMPT_VERSION_UPDATE__') {
-            promptVersion = event.error ?? promptVersion;
-            continue;
+            activeVersion = event.metrics.prompt_version;
           }
           yield event;
         }
       }
       const tail = buffer.trim();
       if (tail) {
-        yield this.parseLine(tail, promptVersion, startedAt);
+        yield this.parseLine(tail, activeVersion, startedAt);
       }
     } finally {
       reader.releaseLock();

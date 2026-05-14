@@ -1,10 +1,38 @@
-<mat-toolbar color="primary" class="app-toolbar">
-  <mat-icon class="brand-icon">construction</mat-icon>
-  <span class="brand-title">Estimador de Software</span>
-  <span class="spacer"></span>
-  @if (metrics(); as m) {
-    <span class="prompt-tag">prompt {{ m.prompt_version }}</span>
-  }
+<mat-toolbar class="app-toolbar">
+  <div class="toolbar-inner">
+    <div class="brand">
+      <span class="brand-mark">
+        <mat-icon>auto_awesome</mat-icon>
+      </span>
+      <span class="brand-title">Estimador</span>
+      <span class="brand-sub">software · AI-assisted</span>
+    </div>
+    <span class="spacer"></span>
+    <button
+      type="button"
+      class="prompt-selector"
+      [matMenuTriggerFor]="versionMenu"
+      [disabled]="streaming()"
+      title="Versión de plantilla utilizada"
+    >
+      <span class="prompt-selector-dot"></span>
+      <span class="prompt-selector-label">prompt {{ promptVersion() }}</span>
+      <mat-icon class="prompt-selector-chevron">expand_more</mat-icon>
+    </button>
+    <mat-menu #versionMenu="matMenu" class="prompt-version-menu" xPosition="before">
+      @for (v of availablePromptVersions; track v) {
+        <button
+          mat-menu-item
+          type="button"
+          (click)="promptVersion.set(v)"
+          [class.is-active]="v === promptVersion()"
+        >
+          <mat-icon>{{ v === promptVersion() ? 'check' : 'remove' }}</mat-icon>
+          <span>prompt {{ v }}</span>
+        </button>
+      }
+    </mat-menu>
+  </div>
 </mat-toolbar>
 
 <main class="layout">
@@ -12,7 +40,7 @@
     <mat-card appearance="outlined">
       <mat-card-header>
         <mat-card-title>Nueva estimación</mat-card-title>
-        <mat-card-subtitle>Define los parámetros y genera una estimación.</mat-card-subtitle>
+        <mat-card-subtitle>Define los parámetros y genera una estimación detallada.</mat-card-subtitle>
       </mat-card-header>
       <mat-card-content>
         <form [formGroup]="form" (ngSubmit)="submit()" class="estimation-form">
@@ -95,19 +123,19 @@
         </mat-card-header>
         <mat-card-content>
           <div class="metrics-grid">
-            <div>
+            <div class="metric">
               <span class="metric-label">Tokens entrada</span>
               <span class="metric-value">{{ m.input_tokens }}</span>
             </div>
-            <div>
+            <div class="metric">
               <span class="metric-label">Tokens salida</span>
               <span class="metric-value">{{ m.output_tokens }}</span>
             </div>
-            <div>
+            <div class="metric is-accent">
               <span class="metric-label">Total</span>
               <span class="metric-value">{{ m.total_tokens }}</span>
             </div>
-            <div>
+            <div class="metric">
               <span class="metric-label">Tiempo</span>
               <span class="metric-value">{{ (m.response_time_ms / 1000).toFixed(2) }}s</span>
             </div>
@@ -122,19 +150,23 @@
       <mat-card-header>
         <mat-card-title>Estimación</mat-card-title>
         <mat-card-subtitle>
-          @if (streaming()) {
-            En streaming…
-          } @else if (output()) {
-            Generada
-          } @else {
-            Esperando entrada
-          }
+          <span class="output-header-meta">
+            @if (streaming()) {
+              <span class="status-dot is-streaming"></span> Generando token a token…
+            } @else if (errorMessage()) {
+              <span class="status-dot is-error"></span> Error
+            } @else if (output()) {
+              <span class="status-dot is-done"></span> Generada
+            } @else {
+              <span class="status-dot"></span> Esperando entrada
+            }
+          </span>
         </mat-card-subtitle>
       </mat-card-header>
       <mat-card-content>
         @if (errorMessage(); as err) {
           <div class="error-box">
-            <mat-icon color="warn">error</mat-icon>
+            <mat-icon>error</mat-icon>
             <div>
               <strong>Algo falló</strong>
               <p>{{ err }}</p>
@@ -142,11 +174,11 @@
           </div>
         }
         @if (output()) {
-          <pre class="output-text">{{ output() }}</pre>
+          <markdown class="output-text" [data]="output()"></markdown>
         } @else if (!streaming() && !errorMessage()) {
           <p class="placeholder">
-            Rellena el formulario y pulsa <em>Generar estimación</em>. La respuesta se
-            irá renderizando token a token aquí.
+            Rellena el formulario y pulsa <em>Generar estimación</em>.<br>
+            La respuesta del modelo se renderizará token a token aquí.
           </p>
         }
       </mat-card-content>

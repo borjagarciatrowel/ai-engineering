@@ -7,9 +7,11 @@ import { MatDividerModule } from '@angular/material/divider';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
+import { MatMenuModule } from '@angular/material/menu';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatSelectModule } from '@angular/material/select';
 import { MatToolbarModule } from '@angular/material/toolbar';
+import { MarkdownComponent } from 'ngx-markdown';
 
 import {
   DETAIL_LEVELS,
@@ -36,9 +38,11 @@ import { EstimationService } from './services/estimation.service';
     MatFormFieldModule,
     MatIconModule,
     MatInputModule,
+    MatMenuModule,
     MatProgressBarModule,
     MatSelectModule,
     MatToolbarModule,
+    MarkdownComponent,
   ],
   templateUrl: './app.component.html',
   styleUrl: './app.component.scss',
@@ -50,6 +54,9 @@ export class AppComponent {
   readonly projectTypes = PROJECT_TYPES;
   readonly detailLevels = DETAIL_LEVELS;
   readonly outputFormats = OUTPUT_FORMATS;
+
+  readonly availablePromptVersions: readonly string[] = ['v1'];
+  readonly promptVersion = signal<string>('v1');
 
   readonly form = this.fb.nonNullable.group({
     description: ['', [Validators.required, Validators.minLength(20), Validators.maxLength(2000)]],
@@ -76,7 +83,7 @@ export class AppComponent {
     this.streaming.set(true);
 
     try {
-      for await (const event of this.api.stream(payload)) {
+      for await (const event of this.api.stream(payload, this.promptVersion())) {
         if (event.type === 'token' && event.text) {
           this.output.update((prev) => prev + event.text);
         } else if (event.type === 'metrics' && event.metrics) {
