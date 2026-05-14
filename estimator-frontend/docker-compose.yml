@@ -1,0 +1,32 @@
+# Docker Compose for the Angular dev server.
+# Runs independently from the FastAPI stack defined in ../estimator/docker-compose.yml.
+# /api requests are proxied to the API container via host.docker.internal:8000,
+# so both stacks can be started and stopped on their own.
+
+services:
+  frontend:
+    build: .
+    container_name: estimator-frontend
+    ports:
+      - "4200:4200"
+
+    # Bind-mount the editable parts of the project for hot reload. The
+    # anonymous volume on /app/node_modules prevents the host's (absent or
+    # platform-mismatched) dependencies from shadowing the container's.
+    volumes:
+      - ./src:/app/src
+      - ./public:/app/public
+      - ./angular.json:/app/angular.json
+      - ./proxy.conf.docker.json:/app/proxy.conf.docker.json
+      - ./tsconfig.json:/app/tsconfig.json
+      - ./tsconfig.app.json:/app/tsconfig.app.json
+      - ./tsconfig.spec.json:/app/tsconfig.spec.json
+      - /app/node_modules
+
+    # On Linux, host.docker.internal is not defined by default. The
+    # host-gateway alias resolves it to the Docker bridge gateway so the
+    # proxy can reach the FastAPI container that is published on the host.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+    restart: unless-stopped

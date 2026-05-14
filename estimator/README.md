@@ -50,14 +50,23 @@ npm start          # serves on http://localhost:4200, proxies /api to :8000
 
 Open <http://localhost:4200>.
 
-## Run the backend in Docker
+## Run with Docker (independent stacks)
+
+Each project has its own `docker-compose.yml`. Start them separately:
 
 ```bash
+# Backend on http://localhost:8000
 cd estimator
+docker compose up --build
+
+# Frontend on http://localhost:4200 (in another terminal)
+cd estimator-frontend
 docker compose up --build
 ```
 
-The Angular frontend still runs locally (`npm start`) and proxies to the container on port 8000.
+The Angular container proxies `/api` to `host.docker.internal:8000`, so the
+backend stack can be started, stopped, or replaced (e.g. local `uvicorn`
+instead of Docker) without touching the frontend stack.
 
 ## Running tests
 
