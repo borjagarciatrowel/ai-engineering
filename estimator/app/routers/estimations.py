@@ -9,7 +9,7 @@ from app.prompts.loader import render_estimation_prompt
 from app.schemas.estimation import EstimationRequest, EstimationResponse, TokenUsage
 from app.services.llm_service import (
     LLMServiceError,
-    generate_estimation,
+    estimation,
     stream_estimation,
 )
 
@@ -26,7 +26,7 @@ async def create_estimation(
     """Render typed prompts via Jinja2 and return a free-text estimation."""
     system, user = render_estimation_prompt(request, version=prompt_version)
     try:
-        result = generate_estimation(system, user)
+        result = estimation(system, user)
     except LLMServiceError as exc:
         log.error("estimation_endpoint_error", error=str(exc))
         raise HTTPException(status_code=500, detail=str(exc))
