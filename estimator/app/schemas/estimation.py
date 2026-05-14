@@ -1,24 +1,47 @@
+from enum import Enum
+
 from pydantic import BaseModel, Field
 
 
-class EstimationRequest(BaseModel):
-    """Incoming request containing a meeting transcription to estimate."""
+class ProjectType(str, Enum):
+    MOBILE_APP = "mobile_app"
+    WEB_SAAS = "web_saas"
+    INTERNAL_TOOL = "internal_tool"
+    DATA_PIPELINE = "data_pipeline"
 
-    transcription: str = Field(..., min_length=50, description="Meeting transcription text")
+
+class DetailLevel(str, Enum):
+    SUMMARY = "summary"
+    MEDIUM = "medium"
+    DETAILED = "detailed"
+
+
+class OutputFormat(str, Enum):
+    PHASES_TABLE = "phases_table"
+    LINE_ITEMS = "line_items"
+    NARRATIVE = "narrative"
+
+
+class EstimationRequest(BaseModel):
+    """Typed estimation request produced by the Angular form."""
+
+    description: str = Field(min_length=20, max_length=2000)
+    project_type: ProjectType
+    detail_level: DetailLevel
+    output_format: OutputFormat
 
 
 class TokenUsage(BaseModel):
-    """Token consumption details from the LLM call."""
-
     input_tokens: int
     output_tokens: int
     total_tokens: int
 
 
 class EstimationResponse(BaseModel):
-    """Response containing the generated estimation and metadata."""
+    """Plain response with rendered text and the prompt version used."""
 
-    estimation: str = Field(..., description="Generated software estimation in markdown")
-    model: str = Field(..., description="LLM model used")
-    provider: str = Field(..., description="LLM provider used")
-    usage: TokenUsage
+    text: str
+    prompt_version: str
+    model: str | None = None
+    provider: str | None = None
+    usage: TokenUsage | None = None

@@ -1,5 +1,6 @@
-# Docker Compose configuration for local development.
-# For production, remove the bind mount and the --reload flag.
+# Docker Compose configuration for local development of the AI service.
+# The Angular frontend runs locally with `npm start` from ../estimator-frontend
+# and proxies /api requests to this container on port 8000.
 
 services:
   estimator:
@@ -23,28 +24,9 @@ services:
 
     restart: unless-stopped
 
-    # Health check using Python's stdlib (curl is not available in slim images).
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 30s
       timeout: 5s
       start_period: 10s
       retries: 3
-
-  streamlit:
-    build: .
-    container_name: streamlit
-    ports:
-      - "8501:8501"
-    env_file:
-      - .env
-    environment:
-      - BACKEND_URL=http://estimator:8000
-    volumes:
-      - ./app:/app/app
-      - ./streamlit_app.py:/app/streamlit_app.py
-    command: streamlit run streamlit_app.py --server.port 8501 --server.address 0.0.0.0
-    depends_on:
-      estimator:
-        condition: service_healthy
-    restart: unless-stopped

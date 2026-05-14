@@ -1,91 +1,107 @@
-# Estimator CAG - Servicio de Estimacion de Software con IA
+# Estimator – AI software project estimator
 
-Servicio de estimacion de proyectos de software impulsado por IA, utilizando una arquitectura **Cache Augmented Generation (CAG)**.
+AI-powered software estimator with a typed Angular form (Material) and a FastAPI service that renders versioned Jinja2 prompt templates against an OpenAI / Anthropic provider.
 
-## Que es CAG y por que lo usamos
+```
+ai-engineering/
+├── estimator/             ← FastAPI service (this folder)
+│   ├── app/
+│   │   ├── prompts/       ← Jinja2 templates + loader (v1, …)
+│   │   ├── routers/       ← /api/v1/estimate{,/stream}
+│   │   ├── schemas/       ← typed EstimationRequest with enums
+│   │   └── services/      ← OpenAI / Anthropic wrapper
+│   └── tests/
+└── estimator-frontend/    ← Angular 19 + Angular Material UI
+```
 
-CAG (Cache Augmented Generation) es un patron de arquitectura donde el contexto relevante se inyecta directamente en el prompt del LLM como texto estatico. En esta fase del proyecto, las estimaciones de referencia se incluyen como ejemplos dentro del prompt del sistema, sin necesidad de una base de datos vectorial ni busqueda semantica.
+## Prerequisites
 
-Este enfoque es ideal para empezar porque:
-- Es simple de implementar y depurar
-- No requiere infraestructura adicional (ni embeddings, ni vector stores)
-- Funciona bien cuando el volumen de contexto es manejable (pocos ejemplos)
+- Python 3.11+ with [uv](https://docs.astral.sh/uv/) installed
+- Node.js 20+ and npm
+- `OPENAI_API_KEY` and/or `ANTHROPIC_API_KEY` set in `estimator/.env`
 
-En modulos posteriores del master, este servicio evolucionara a una arquitectura **RAG** (Retrieval Augmented Generation) con base de datos vectorial para manejar un volumen mayor de ejemplos.
+`.env` example:
 
-## Requisitos previos
+```env
+LLM_PROVIDER=openai
+LLM_MODEL=gpt-4o-mini
+OPENAI_API_KEY=sk-...
+```
 
-- **Docker** y **Docker Compose** instalados
-- Una **API key** de OpenAI o Anthropic
-- Python **NO** es necesario localmente — todo se ejecuta dentro del contenedor
+## Run locally (recommended)
 
-## Inicio rapido con Docker (recomendado)
+Two terminals.
 
-1. Clonar el repositorio y entrar al directorio:
-   ```bash
-   cd estimator
-   ```
-
-2. Copiar el archivo de variables de entorno y configurar las API keys:
-   ```bash
-   cp .env.example .env
-   # Editar .env y poner tu API key real
-   ```
-
-3. Construir y levantar el servicio:
-   ```bash
-   docker compose up --build
-   ```
-
-4. El servicio estara disponible en `http://localhost:8000`
-
-## Alternativa: ejecucion local sin Docker
+**Terminal A — FastAPI service:**
 
 ```bash
+cd estimator
 uv sync
-# Configurar .env con tus API keys
-uv run uvicorn app.main:app --reload
+uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-## Probar el servicio
+**Terminal B — Angular frontend:**
 
 ```bash
-curl -X POST http://localhost:8000/api/v1/estimate \
-  -H "Content-Type: application/json" \
-  -d '{
-    "transcription": "The client wants to build a mobile app for managing restaurant reservations. They need user registration, a restaurant search with filters by cuisine and location, a real-time reservation system with availability checking, push notifications for reservation confirmations and reminders, and an admin panel for restaurant owners to manage their listings and view analytics."
-  }'
+cd estimator-frontend
+npm install        # only first time
+npm start          # serves on http://localhost:4200, proxies /api to :8000
 ```
 
-## Estructura del proyecto
+Open <http://localhost:4200>.
 
-```
-estimator/
-├── app/
-│   ├── main.py            # Aplicacion FastAPI, health check, CORS
-│   ├── config.py           # Configuracion con Pydantic Settings
-│   ├── routers/
-│   │   └── estimations.py  # Endpoint POST /api/v1/estimate
-│   ├── services/
-│   │   └── llm_service.py  # Logica de negocio, llamadas al LLM
-│   ├── schemas/
-│   │   └── estimation.py   # Modelos Pydantic (request/response)
-│   └── context/
-│       └── examples.py     # Ejemplos de estimacion (contexto CAG)
-├── tests/
-│   └── test_health.py      # Tests basicos
-├── Dockerfile              # Build multi-stage con uv
-├── docker-compose.yml      # Configuracion para desarrollo local
-└── pyproject.toml          # Dependencias y configuracion
+## Run the backend in Docker
+
+```bash
+cd estimator
+docker compose up --build
 ```
 
-## Documentacion interactiva
+The Angular frontend still runs locally (`npm start`) and proxies to the container on port 8000.
 
-Con el servicio corriendo, accede a la documentacion Swagger UI en:
+## Running tests
 
-- **Swagger UI:** [http://localhost:8000/docs](http://localhost:8000/docs)
-- **ReDoc:** [http://localhost:8000/redoc](http://localhost:8000/redoc)
+Backend (template tests + endpoint tests):
 
----
+```bash
+cd estimator
+uv run pytest -q
+```
 
-> Este proyecto forma parte del **Master en AI Engineering** y servira como base para evolucionar hacia una arquitectura RAG con base de datos vectorial en modulos posteriores.
+Frontend:
+
+```bash
+cd estimator-frontend
+npm test            # Karma + Jasmine
+```
+
+## Architecture notes
+
+### Typed request
+
+`EstimationRequest` (`app/schemas/estimation.py`) is the only contract between the Angular form and the AI service. The four fields — `description`, `project_type`, `detail_level`, `output_format` — are enums backed by Pydantic v2 and TypeScript types in `estimator-frontend/src/app/models/estimation.ts`.
+
+### Versioned prompt templates
+
+Prompts live as files under `app/prompts/estimation/v1/`:
+
+- `system.j2` – role, format and detail-level conditionals, `{% include "examples.j2" %}`
+- `user.j2` – wraps the user's project description in a `<project_description>` block
+- `examples.j2` – three few-shot estimations
+
+`render_estimation_prompt(request, version="v1")` returns the `(system, user)` tuple. Adding a `v2/` folder + `?prompt_version=v2` query param is enough to roll out a new template without touching the rest of the code.
+
+### Endpoints
+
+- `POST /api/v1/estimate?prompt_version=v1` → `EstimationResponse` (text + metadata)
+- `POST /api/v1/estimate/stream?prompt_version=v1` → NDJSON stream of `{"t": "<token>"}` and a final `{"done": true, …}` chunk
+
+### Template tests
+
+`tests/prompts/test_estimation_v1.py` runs in milliseconds and checks:
+
+- The user description is rendered verbatim inside `<project_description>`.
+- `output_format=phases_table` adds the `phases_table`/`confidence_pct` keywords; `narrative` does not.
+- `detail_level=detailed` adds the "list assumptions per phase" instruction; `summary` does not.
+- The `{% include "examples.j2" %}` is wired up.
+- Unknown versions raise.

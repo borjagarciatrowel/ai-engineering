@@ -1,0 +1,70 @@
+--- EXAMPLE 1 (web_saas) ---
+Request:
+A logistics startup wants a multi-tenant SaaS dashboard for fleet managers. They need vehicle tracking via the existing GPS API, driver shift planning, fuel-cost reports and a customer-facing client portal. Auth0 for SSO. They already have an internal data warehouse in BigQuery.
+
+Estimation:
+## Fleet Management SaaS Dashboard
+
+| Phase | Task | Hours | Cost (EUR) |
+|-------|------|------:|-----------:|
+| Discovery | Requirements workshops and architecture | 16 | 1,000 |
+| Design | UX flows and design system tokens | 24 | 1,200 |
+| Implementation | Multi-tenant auth (Auth0) and RBAC | 24 | 1,500 |
+| Implementation | Vehicle tracking integration with GPS API | 28 | 1,750 |
+| Implementation | Driver shift planning module | 24 | 1,500 |
+| Implementation | Fuel cost reports against BigQuery | 20 | 1,250 |
+| Implementation | Client portal | 28 | 1,750 |
+| Testing | E2E and load tests | 18 | 1,125 |
+| Deployment | Staging and production rollout | 10 | 625 |
+
+- Total hours: 192
+- Total cost: 11,700 EUR
+- Recommended team: 1 Senior Full-Stack, 1 Frontend, 1 QA (part-time)
+- Estimated duration: 10 weeks
+
+--- EXAMPLE 2 (mobile_app) ---
+Request:
+A boutique gym chain wants an iOS and Android app for members: class booking, QR check-in, personal trainer chat, and push notifications for cancellations. Backend will reuse their existing Laravel API. Stripe handles membership renewals.
+
+Estimation:
+## Gym Membership Mobile App
+
+| Phase | Task | Hours | Cost (EUR) |
+|-------|------|------:|-----------:|
+| Discovery | Requirements and API audit | 12 | 750 |
+| Design | App flows, components and brand alignment | 28 | 1,400 |
+| Implementation | React Native foundation and auth | 20 | 1,250 |
+| Implementation | Class booking and calendar UI | 24 | 1,500 |
+| Implementation | QR check-in and offline mode | 18 | 1,125 |
+| Implementation | Trainer chat (websockets) | 24 | 1,500 |
+| Implementation | Push notifications and Stripe renewals | 20 | 1,250 |
+| Testing | Device matrix and store readiness | 16 | 1,000 |
+| Deployment | App Store and Play Store submission | 8 | 500 |
+
+- Total hours: 170
+- Total cost: 10,275 EUR
+- Recommended team: 1 Senior Mobile, 1 Mid Mobile, 1 Designer (part-time)
+- Estimated duration: 9 weeks
+
+--- EXAMPLE 3 (internal_tool) ---
+Request:
+An insurance company needs an internal claims-triage tool for their back office. Operators paste a claim description, and the tool classifies it, assigns priority and suggests next steps based on a rules engine and a small fine-tuned model. SSO with Okta. PostgreSQL on-prem.
+
+Estimation:
+## Claims Triage Internal Tool
+
+| Phase | Task | Hours | Cost (EUR) |
+|-------|------|------:|-----------:|
+| Discovery | Stakeholder interviews and rules audit | 16 | 1,000 |
+| Design | Operator workflow and forms | 14 | 700 |
+| Implementation | SSO (Okta) and audit logging | 16 | 1,000 |
+| Implementation | Claim classification service | 24 | 1,500 |
+| Implementation | Rules engine integration | 20 | 1,250 |
+| Implementation | Operator UI and review queue | 28 | 1,750 |
+| Testing | Functional tests and rules coverage | 18 | 1,125 |
+| Deployment | On-prem install and hardening | 12 | 750 |
+
+- Total hours: 148
+- Total cost: 9,075 EUR
+- Recommended team: 1 Senior Backend, 1 Frontend, 1 QA (part-time)
+- Estimated duration: 8 weeks

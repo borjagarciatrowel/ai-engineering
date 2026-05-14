@@ -4,7 +4,6 @@ from collections.abc import Generator
 import structlog
 
 from app.config import get_settings
-from app.context.examples import ESTIMATION_EXAMPLES, format_examples_for_prompt
 
 log = structlog.get_logger()
 
@@ -15,34 +14,9 @@ class LLMServiceError(Exception):
     """Raised when the LLM provider call fails."""
 
 
-def build_system_prompt() -> str:
-    """Construct the system prompt with role definition and reference examples."""
-    examples_text = format_examples_for_prompt(ESTIMATION_EXAMPLES)
-    return (
-        "You are a senior software consultant with 15+ years of experience in project "
-        "estimation. Your task is to produce a detailed software project estimation based "
-        "on a meeting transcription provided by the user.\n\n"
-        "Below are reference estimations from previous projects. Use them as a guide for "
-        "structure, level of detail, and realistic pricing. Adapt the content to match the "
-        "specific project described in the transcription.\n\n"
-        "Your output MUST follow this exact format:\n"
-        "- Project title as an H2 heading\n"
-        "- A task breakdown table with columns: Task, Hours, Cost (EUR)\n"
-        "- Total hours\n"
-        "- Total cost in EUR\n"
-        "- Recommended team composition\n"
-        "- Estimated duration in weeks\n\n"
-        "Use a developer rate of approximately 62.50 EUR/hour (500 EUR/day) and a designer "
-        "rate of approximately 50 EUR/hour (400 EUR/day). Provide realistic, well-justified "
-        "numbers.\n\n"
-        f"{examples_text}"
-    )
-
-
-def generate_estimation(transcription: str) -> dict:
-    """Generate a software estimation from a meeting transcription using the configured LLM."""
+def generate_estimation(system_prompt: str, user_message: str) -> dict:
+    """Generate a software estimation given pre-rendered system and user prompts."""
     settings = get_settings()
-    system_prompt = build_system_prompt()
 
     log.info("generating_estimation", provider=settings.LLM_PROVIDER, model=settings.LLM_MODEL)
 
@@ -51,14 +25,11 @@ def generate_estimation(transcription: str) -> dict:
             return _call_openai(
                 messages=[
                     {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": transcription},
+                    {"role": "user", "content": user_message},
                 ],
             )
         else:
-            return _call_anthropic(
-                system=system_prompt,
-                user_message=transcription,
-            )
+            return _call_anthropic(system=system_prompt, user_message=user_message)
     except LLMServiceError:
         raise
     except Exception as exc:
@@ -67,7 +38,6 @@ def generate_estimation(transcription: str) -> dict:
 
 
 def _call_openai(messages: list[dict]) -> dict:
-    """Send a chat completion request to the OpenAI API."""
     from openai import OpenAI
 
     settings = get_settings()
@@ -100,7 +70,6 @@ def _call_openai(messages: list[dict]) -> dict:
 
 
 def _call_anthropic(system: str, user_message: str) -> dict:
-    """Send a message request to the Anthropic API."""
     from anthropic import Anthropic
 
     settings = get_settings()
@@ -132,7 +101,7 @@ def _call_anthropic(system: str, user_message: str) -> dict:
     }
 
 
-def stream_estimation(transcription: str) -> Generator[bytes, None, None]:
+def stream_estimation(system_prompt: str, user_message: str) -> Generator[bytes, None, None]:
     """Stream a software estimation as NDJSON bytes.
 
     Each yielded line is either:
@@ -140,17 +109,16 @@ def stream_estimation(transcription: str) -> Generator[bytes, None, None]:
     - {"done": true, "model": "...", "provider": "...", "usage": {...}}  — final metadata
     """
     settings = get_settings()
-    system_prompt = build_system_prompt()
 
     log.info("stream_estimation_start", provider=settings.LLM_PROVIDER, model=settings.LLM_MODEL)
 
     if settings.LLM_PROVIDER == "openai":
-        yield from _stream_openai(system_prompt, transcription)
+        yield from _stream_openai(system_prompt, user_message)
     else:
-        yield from _stream_anthropic(system_prompt, transcription)
+        yield from _stream_anthropic(system_prompt, user_message)
 
 
-def _stream_openai(system_prompt: str, transcription: str) -> Generator[bytes, None, None]:
+def _stream_openai(system_prompt: str, user_message: str) -> Generator[bytes, None, None]:
     from openai import OpenAI
 
     settings = get_settings()
@@ -166,7 +134,7 @@ def _stream_openai(system_prompt: str, transcription: str) -> Generator[bytes, N
             stream_options={"include_usage": True},
             messages=[
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": transcription},
+                {"role": "user", "content": user_message},
             ],
         ) as stream:
             for chunk in stream:
@@ -200,7 +168,7 @@ def _stream_openai(system_prompt: str, transcription: str) -> Generator[bytes, N
             }).encode() + b"\n"
 
 
-def _stream_anthropic(system_prompt: str, transcription: str) -> Generator[bytes, None, None]:
+def _stream_anthropic(system_prompt: str, user_message: str) -> Generator[bytes, None, None]:
     from anthropic import Anthropic
 
     settings = get_settings()
@@ -211,7 +179,7 @@ def _stream_anthropic(system_prompt: str, transcription: str) -> Generator[bytes
             model=settings.LLM_MODEL,
             max_tokens=MAX_TOKENS,
             system=system_prompt,
-            messages=[{"role": "user", "content": transcription}],
+            messages=[{"role": "user", "content": user_message}],
         ) as stream:
             for text in stream.text_stream:
                 yield json.dumps({"t": text}).encode() + b"\n"
