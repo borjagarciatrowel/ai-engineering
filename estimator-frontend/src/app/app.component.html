@@ -1,0 +1,155 @@
+<mat-toolbar color="primary" class="app-toolbar">
+  <mat-icon class="brand-icon">construction</mat-icon>
+  <span class="brand-title">Estimador de Software</span>
+  <span class="spacer"></span>
+  @if (metrics(); as m) {
+    <span class="prompt-tag">prompt {{ m.prompt_version }}</span>
+  }
+</mat-toolbar>
+
+<main class="layout">
+  <section class="form-panel">
+    <mat-card appearance="outlined">
+      <mat-card-header>
+        <mat-card-title>Nueva estimación</mat-card-title>
+        <mat-card-subtitle>Define los parámetros y genera una estimación.</mat-card-subtitle>
+      </mat-card-header>
+      <mat-card-content>
+        <form [formGroup]="form" (ngSubmit)="submit()" class="estimation-form">
+          <mat-form-field appearance="outline">
+            <mat-label>Tipo de proyecto</mat-label>
+            <mat-select formControlName="project_type">
+              @for (option of projectTypes; track option.value) {
+                <mat-option [value]="option.value">{{ option.label }}</mat-option>
+              }
+            </mat-select>
+          </mat-form-field>
+
+          <mat-form-field appearance="outline">
+            <mat-label>Nivel de detalle</mat-label>
+            <mat-select formControlName="detail_level">
+              @for (option of detailLevels; track option.value) {
+                <mat-option [value]="option.value">{{ option.label }}</mat-option>
+              }
+            </mat-select>
+          </mat-form-field>
+
+          <mat-form-field appearance="outline">
+            <mat-label>Formato de salida</mat-label>
+            <mat-select formControlName="output_format">
+              @for (option of outputFormats; track option.value) {
+                <mat-option [value]="option.value">{{ option.label }}</mat-option>
+              }
+            </mat-select>
+          </mat-form-field>
+
+          <mat-form-field appearance="outline" class="description-field">
+            <mat-label>Descripción del proyecto</mat-label>
+            <textarea
+              matInput
+              formControlName="description"
+              rows="8"
+              placeholder="Describe el alcance, integraciones, equipo y plazo."
+            ></textarea>
+            <mat-hint align="end">
+              {{ form.controls.description.value.length }} / 2000
+            </mat-hint>
+            @if (descriptionError(); as message) {
+              <mat-error>{{ message }}</mat-error>
+            }
+          </mat-form-field>
+
+          <div class="actions">
+            <button
+              mat-flat-button
+              color="primary"
+              type="submit"
+              [disabled]="form.invalid || streaming()"
+            >
+              <mat-icon>auto_awesome</mat-icon>
+              {{ streaming() ? 'Generando…' : 'Generar estimación' }}
+            </button>
+            <button
+              mat-stroked-button
+              type="button"
+              (click)="reset()"
+              [disabled]="streaming()"
+            >
+              <mat-icon>refresh</mat-icon>
+              Limpiar
+            </button>
+          </div>
+
+          @if (streaming()) {
+            <mat-progress-bar mode="indeterminate" class="stream-bar"></mat-progress-bar>
+          }
+        </form>
+      </mat-card-content>
+    </mat-card>
+
+    @if (metrics(); as m) {
+      <mat-card appearance="outlined" class="metrics-card">
+        <mat-card-header>
+          <mat-card-title>Métricas</mat-card-title>
+          <mat-card-subtitle>{{ m.provider }} · {{ m.model }}</mat-card-subtitle>
+        </mat-card-header>
+        <mat-card-content>
+          <div class="metrics-grid">
+            <div>
+              <span class="metric-label">Tokens entrada</span>
+              <span class="metric-value">{{ m.input_tokens }}</span>
+            </div>
+            <div>
+              <span class="metric-label">Tokens salida</span>
+              <span class="metric-value">{{ m.output_tokens }}</span>
+            </div>
+            <div>
+              <span class="metric-label">Total</span>
+              <span class="metric-value">{{ m.total_tokens }}</span>
+            </div>
+            <div>
+              <span class="metric-label">Tiempo</span>
+              <span class="metric-value">{{ (m.response_time_ms / 1000).toFixed(2) }}s</span>
+            </div>
+          </div>
+        </mat-card-content>
+      </mat-card>
+    }
+  </section>
+
+  <section class="output-panel">
+    <mat-card appearance="outlined" class="output-card">
+      <mat-card-header>
+        <mat-card-title>Estimación</mat-card-title>
+        <mat-card-subtitle>
+          @if (streaming()) {
+            En streaming…
+          } @else if (output()) {
+            Generada
+          } @else {
+            Esperando entrada
+          }
+        </mat-card-subtitle>
+      </mat-card-header>
+      <mat-card-content>
+        @if (errorMessage(); as err) {
+          <div class="error-box">
+            <mat-icon color="warn">error</mat-icon>
+            <div>
+              <strong>Algo falló</strong>
+              <p>{{ err }}</p>
+            </div>
+          </div>
+        }
+        @if (output()) {
+          <pre class="output-text">{{ output() }}</pre>
+        } @else if (!streaming() && !errorMessage()) {
+          <p class="placeholder">
+            Rellena el formulario y pulsa <em>Generar estimación</em>. La respuesta se
+            irá renderizando token a token aquí.
+          </p>
+        }
+      </mat-card-content>
+    </mat-card>
+  </section>
+</main>
