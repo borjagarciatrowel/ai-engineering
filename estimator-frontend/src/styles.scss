@@ -210,3 +210,60 @@ html, body {
 .mat-mdc-option.mdc-list-item--selected:not(.mdc-list-item--disabled) .mdc-list-item__primary-text {
   color: var(--accent-strong) !important;
 }
+
+/* ----- Status badge (lifecycle colours, shared by list + detail) ----- */
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.status-badge::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+.status-badge.is-editing {
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+  border-color: rgba(139, 148, 255, 0.3);
+}
+.status-badge.is-running {
+  color: var(--warning);
+  background: rgba(251, 191, 36, 0.12);
+  border-color: rgba(251, 191, 36, 0.3);
+}
+.status-badge.is-running::before {
+  animation: badge-pulse 1.4s ease-in-out infinite;
+}
+.status-badge.is-finished {
+  color: var(--success);
+  background: rgba(74, 222, 128, 0.12);
+  border-color: rgba(74, 222, 128, 0.3);
+}
+.status-badge.is-error {
+  color: var(--danger);
+  background: var(--danger-soft);
+  border-color: rgba(248, 113, 113, 0.3);
+}
+@keyframes badge-pulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
+/* ----- Dialog dark surface ----- */
+.mat-mdc-dialog-surface {
+  background-color: var(--bg-elevated) !important;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg) !important;
+  color: var(--text-primary);
+}

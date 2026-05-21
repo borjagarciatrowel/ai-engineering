@@ -1,0 +1,48 @@
+<main class="page">
+  <header class="page-head">
+    <div>
+      <h1>Estimaciones</h1>
+      <p class="page-sub">Tus estimaciones de proyectos, con su estado.</p>
+    </div>
+    <button mat-flat-button color="primary" (click)="createNew()" [disabled]="creating()">
+      <mat-icon>add</mat-icon>
+      Crear nueva estimación
+    </button>
+  </header>
+
+  @if (errorMessage(); as err) {
+    <div class="error-box">
+      <mat-icon>error</mat-icon>
+      <span>{{ err }}</span>
+    </div>
+  }
+
+  @if (loading()) {
+    <div class="centered">
+      <mat-progress-spinner mode="indeterminate" diameter="36"></mat-progress-spinner>
+    </div>
+  } @else if (items().length === 0) {
+    <div class="empty">
+      <mat-icon>inbox</mat-icon>
+      <p>No hay estimaciones todavía.</p>
+      <button mat-stroked-button (click)="createNew()">
+        <mat-icon>add</mat-icon>
+        Crear la primera
+      </button>
+    </div>
+  } @else {
+    <ul class="cards">
+      @for (item of items(); track item.id) {
+        <li class="card-row">
+          <a class="row-main" [routerLink]="['/estimations', item.id]">
+            <span class="row-title">{{ item.title }}</span>
+            <span class="row-date">Actualizada {{ item.updated_at | date: 'short' }}</span>
+          </a>
+          <span class="status-badge" [ngClass]="statusMeta[item.status].cssClass">
+            {{ statusMeta[item.status].label }}
+          </span>
+        </li>
+      }
+    </ul>
+  }
+</main>

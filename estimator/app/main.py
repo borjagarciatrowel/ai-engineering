@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
-from app.routers import estimations
+from app.routers import estimations, records
 
 
 def configure_logging() -> None:
@@ -39,14 +39,23 @@ async def lifespan(app: FastAPI):
     configure_logging()
     log = structlog.get_logger()
     settings = get_settings()
+    # Create tables on startup. Best-effort: a missing DB must not crash the
+    # service (and lets the non-DB unit tests boot the app without Postgres).
+    try:
+        from app.db import create_all
+
+        create_all()
+        log.info("database_ready")
+    except Exception as exc:  # noqa: BLE001
+        log.warning("database_unavailable", error_type=type(exc).__name__, error=str(exc)[:200])
     log.info("application_started", environment=settings.APP_ENV)
     yield
     log.info("application_shutdown")
 
 
 app = FastAPI(
-    title="Software Estimation CAG Service",
-    description="AI-powered software estimation service using Cache Augmented Generation architecture",
+    title="Software Estimation Service",
+    description="AI-powered software estimation service with typed input and versioned prompts",
     version="0.1.0",
     docs_url="/docs",
     redoc_url="/redoc",
@@ -62,6 +71,7 @@ app.add_middleware(
 )
 
 app.include_router(estimations.router)
+app.include_router(records.router)
 
 
 @app.get("/health")

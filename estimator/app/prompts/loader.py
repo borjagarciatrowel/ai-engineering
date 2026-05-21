@@ -1,39 +1,46 @@
-from functools import lru_cache
+"""Jinja2 loader for versioned prompt templates.
+
+The on-disk layout is ``app/prompts/<use_case>/<version>/<role>.j2``. Versioning
+is required from day one: switching prompts becomes a string change at the
+call site (``version="v2"``), not a code refactor.
+"""
+
+from __future__ import annotations
+
 from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
 from app.schemas.estimation import EstimationRequest
 
-PROMPTS_ROOT = Path(__file__).parent
+_BASE_DIR = Path(__file__).resolve().parent
 
-
-@lru_cache
-def _get_env(version: str) -> Environment:
-    return Environment(
-        loader=FileSystemLoader(PROMPTS_ROOT / "estimation" / version),
-        undefined=StrictUndefined,
-        trim_blocks=True,
-        lstrip_blocks=True,
-        autoescape=False,
-        keep_trailing_newline=True,
-    )
+_env = Environment(
+    loader=FileSystemLoader(_BASE_DIR),
+    undefined=StrictUndefined,
+    trim_blocks=True,
+    lstrip_blocks=True,
+    autoescape=False,
+    keep_trailing_newline=True,
+)
 
 
 def render_estimation_prompt(
-    request: EstimationRequest, version: str = "v1"
+    request: EstimationRequest,
+    version: str = "v1",
 ) -> tuple[str, str]:
-    """Render system and user prompts for the given request and prompt version.
+    """Render the system and user prompts for the estimation use case.
 
-    Returns a (system, user) tuple ready to feed the LLM wrapper.
+    Returns:
+        A tuple ``(system_prompt, user_prompt)`` ready to be sent to the LLM
+        as separate ``role: "system"`` and ``role: "user"`` messages.
     """
-    env = _get_env(version)
-    ctx = {
+    context = {
         "description": request.description,
         "project_type": request.project_type.value,
         "detail_level": request.detail_level.value,
         "output_format": request.output_format.value,
     }
-    system = env.get_template("system.j2").render(**ctx)
-    user = env.get_template("user.j2").render(**ctx)
+    system = _env.get_template(f"estimation/{version}/system.j2").render(**context)
+    user = _env.get_template(f"estimation/{version}/user.j2").render(**context)
     return system, user

@@ -1,122 +1,88 @@
 import { Injectable } from '@angular/core';
 
-import { EstimationRequest, StreamMetrics } from '../models/estimation';
-
-export interface StreamEvent {
-  type: 'token' | 'metrics' | 'error' | 'done';
-  text?: string;
-  metrics?: StreamMetrics;
-  error?: string;
-}
+import {
+  EstimationCreate,
+  EstimationListItem,
+  EstimationRecord,
+  EstimationUpdate,
+} from '../models/estimation';
 
 @Injectable({ providedIn: 'root' })
 export class EstimationService {
-  private readonly baseUrl = '/api/v1';
+  private readonly baseUrl = '/api/v1/estimations';
 
-  async *stream(
-    request: EstimationRequest,
-    promptVersion: string = 'v1',
-  ): AsyncGenerator<StreamEvent, void, void> {
-    const startedAt = performance.now();
-    const url = `${this.baseUrl}/estimate/stream?prompt_version=${encodeURIComponent(promptVersion)}`;
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(request),
-    });
-
-    if (!response.ok) {
-      const detail = await response.text().catch(() => '');
-      yield { type: 'error', error: `HTTP ${response.status}: ${detail || response.statusText}` };
-      return;
-    }
-    if (!response.body) {
-      yield { type: 'error', error: 'El backend no devolvió cuerpo de respuesta.' };
-      return;
-    }
-
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-    let activeVersion = promptVersion;
-
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) {
-          break;
-        }
-        buffer += decoder.decode(value, { stream: true });
-
-        let newlineIndex = buffer.indexOf('\n');
-        while (newlineIndex !== -1) {
-          const rawLine = buffer.slice(0, newlineIndex).trim();
-          buffer = buffer.slice(newlineIndex + 1);
-          newlineIndex = buffer.indexOf('\n');
-          if (!rawLine) {
-            continue;
-          }
-          const event = this.parseLine(rawLine, activeVersion, startedAt);
-          if (event.type === 'metrics' && event.metrics) {
-            activeVersion = event.metrics.prompt_version;
-          }
-          yield event;
-        }
-      }
-      const tail = buffer.trim();
-      if (tail) {
-        yield this.parseLine(tail, activeVersion, startedAt);
-      }
-    } finally {
-      reader.releaseLock();
-    }
-
-    yield { type: 'done' };
+  async list(): Promise<EstimationListItem[]> {
+    return this.json<EstimationListItem[]>(await fetch(this.baseUrl));
   }
 
-  private parseLine(line: string, promptVersion: string, startedAt: number): StreamEvent {
-    let chunk: Record<string, unknown>;
+  async get(id: string): Promise<EstimationRecord> {
+    return this.json<EstimationRecord>(await fetch(`${this.baseUrl}/${id}`));
+  }
+
+  async create(payload: EstimationCreate): Promise<EstimationRecord> {
+    return this.json<EstimationRecord>(
+      await fetch(this.baseUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      }),
+    );
+  }
+
+  async update(id: string, patch: EstimationUpdate): Promise<EstimationRecord> {
+    return this.json<EstimationRecord>(
+      await fetch(`${this.baseUrl}/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch),
+      }),
+    );
+  }
+
+  /** Run the pipeline. Pass reestimate=true to clear caches first (re-estimation). */
+  async run(id: string, opts: { reestimate?: boolean } = {}): Promise<EstimationRecord> {
+    const qs = opts.reestimate ? '?reestimate=true' : '';
+    return this.json<EstimationRecord>(
+      await fetch(`${this.baseUrl}/${id}/run${qs}`, { method: 'POST' }),
+    );
+  }
+
+  async remove(id: string): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/${id}`, { method: 'DELETE' });
+    if (!response.ok) {
+      throw new Error(await this.extractError(response));
+    }
+  }
+
+  private async json<T>(response: Response): Promise<T> {
+    if (!response.ok) {
+      throw new Error(await this.extractError(response));
+    }
+    return (await response.json()) as T;
+  }
+
+  /** Map FastAPI error bodies (guardrail 400, validation 422, 404, 502) to a message. */
+  private async extractError(response: Response): Promise<string> {
+    let detail: unknown;
     try {
-      chunk = JSON.parse(line);
+      const body = await response.json();
+      detail = (body as { detail?: unknown })?.detail ?? body;
     } catch {
-      return { type: 'error', error: `Línea NDJSON inválida: ${line}` };
+      detail = await response.text().catch(() => '');
     }
 
-    if (typeof chunk['t'] === 'string') {
-      return { type: 'token', text: chunk['t'] as string };
+    if (detail && typeof detail === 'object' && !Array.isArray(detail) && 'message' in detail) {
+      const d = detail as { reason?: string; message?: string };
+      return d.reason ? `${d.message} (${d.reason})` : d.message ?? `HTTP ${response.status}`;
     }
-    if (chunk['done'] === true) {
-      const usage = (chunk['usage'] as Record<string, number>) ?? {};
-      return {
-        type: 'metrics',
-        metrics: {
-          prompt_version: promptVersion,
-          model: (chunk['model'] as string) ?? 'unknown',
-          provider: (chunk['provider'] as string) ?? 'unknown',
-          input_tokens: usage['input_tokens'] ?? 0,
-          output_tokens: usage['output_tokens'] ?? 0,
-          total_tokens: usage['total_tokens'] ?? 0,
-          response_time_ms: Math.round(performance.now() - startedAt),
-        },
-      };
+    if (Array.isArray(detail) && detail.length > 0) {
+      const first = detail[0] as { loc?: unknown[]; msg?: string };
+      const field = first.loc?.[first.loc.length - 1];
+      return first.msg ? `${field}: ${first.msg}` : `HTTP ${response.status}`;
     }
-    if (typeof chunk['prompt_version'] === 'string') {
-      return {
-        type: 'metrics',
-        metrics: {
-          prompt_version: chunk['prompt_version'] as string,
-          model: 'pending',
-          provider: 'pending',
-          input_tokens: 0,
-          output_tokens: 0,
-          total_tokens: 0,
-          response_time_ms: 0,
-        },
-      };
+    if (typeof detail === 'string' && detail) {
+      return detail;
     }
-    if (typeof chunk['error'] === 'string') {
-      return { type: 'error', error: chunk['error'] as string };
-    }
-    return { type: 'error', error: `Chunk NDJSON desconocido: ${line}` };
+    return `HTTP ${response.status}: ${response.statusText}`;
   }
 }
