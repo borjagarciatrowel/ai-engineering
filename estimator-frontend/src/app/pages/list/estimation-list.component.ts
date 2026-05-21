@@ -47,8 +47,10 @@ export class EstimationListComponent implements OnInit {
     this.creating.set(true);
     this.errorMessage.set(null);
     try {
-      const record = await this.api.create({ title: 'Nueva estimación' });
-      await this.router.navigate(['/estimations', record.id]);
+      // A new estimation is a new conversation: create the session + its row,
+      // then open the detail (conversational interface).
+      const { estimation_id } = await this.api.createConversation();
+      await this.router.navigate(['/estimations', estimation_id]);
     } catch (err) {
       this.errorMessage.set(err instanceof Error ? err.message : String(err));
       this.creating.set(false);

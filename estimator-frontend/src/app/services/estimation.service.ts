@@ -1,15 +1,29 @@
 import { Injectable } from '@angular/core';
 
 import {
+  Conversation,
+  DetailLevel,
   EstimationCreate,
   EstimationListItem,
   EstimationRecord,
+  EstimationResponse,
   EstimationUpdate,
+  OutputFormat,
+  ProjectType,
+  SessionInfo,
 } from '../models/estimation';
+
+export interface ConversationFields {
+  transcript: string;
+  project_type: ProjectType;
+  detail_level: DetailLevel;
+  output_format: OutputFormat;
+}
 
 @Injectable({ providedIn: 'root' })
 export class EstimationService {
   private readonly baseUrl = '/api/v1/estimations';
+  private readonly sessionsUrl = '/sessions';
 
   async list(): Promise<EstimationListItem[]> {
     return this.json<EstimationListItem[]>(await fetch(this.baseUrl));
@@ -52,6 +66,45 @@ export class EstimationService {
     if (!response.ok) {
       throw new Error(await this.extractError(response));
     }
+  }
+
+  // --- Session 5: conversational memory + attachments ---
+
+  /** Start a new conversational estimation: creates the session + its grid/detail
+   * row and returns both ids. */
+  async createConversation(): Promise<{ session_id: string; estimation_id: string }> {
+    return this.json<{ session_id: string; estimation_id: string }>(
+      await fetch(this.sessionsUrl, { method: 'POST' }),
+    );
+  }
+
+  /** Read the current project_metadata + history length for a session. */
+  async getSession(id: string): Promise<SessionInfo> {
+    return this.json<SessionInfo>(await fetch(`${this.sessionsUrl}/${id}`));
+  }
+
+  /** Read the full turn-by-turn history of a session. */
+  async getConversation(id: string): Promise<Conversation> {
+    return this.json<Conversation>(await fetch(`${this.sessionsUrl}/${id}/conversation`));
+  }
+
+  /** Run one conversational turn (multipart: transcript + optional attachments). */
+  async estimateInSession(
+    id: string,
+    fields: ConversationFields,
+    files: File[],
+  ): Promise<EstimationResponse> {
+    const fd = new FormData();
+    fd.append('transcript', fields.transcript);
+    fd.append('project_type', fields.project_type);
+    fd.append('detail_level', fields.detail_level);
+    fd.append('output_format', fields.output_format);
+    for (const file of files) {
+      fd.append('attachments', file, file.name);
+    }
+    return this.json<EstimationResponse>(
+      await fetch(`${this.sessionsUrl}/${id}/estimate`, { method: 'POST', body: fd }),
+    );
   }
 
   private async json<T>(response: Response): Promise<T> {

@@ -32,6 +32,8 @@ export interface EstimationRecord {
   id: string;
   title: string;
   status: EstimationStatus;
+  /** Set when this record mirrors a conversational session (enables the thread view). */
+  session_id: string | null;
   description: string;
   project_type: ProjectType;
   detail_level: DetailLevel;
@@ -51,6 +53,62 @@ export interface EstimationRecord {
   error_message: string | null;
   created_at: string;
   updated_at: string;
+}
+
+/** Per-call LLM telemetry (null on a cache hit). */
+export interface LlmUsage {
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+  cost_usd: number;
+  latency_ms: number | null;
+  finish_reason: string | null;
+}
+
+/** Raw response of the stateless + conversational estimate endpoints. */
+export interface EstimationResponse {
+  result: EstimationResult;
+  prompt_version: string;
+  cached: boolean;
+  usage: LlmUsage | null;
+}
+
+/** Session 5 — the durable facts kept across turns (lives apart from history). */
+export interface ProjectMetadata {
+  project_name: string | null;
+  assumed_team_size: number | null;
+  mentioned_technologies: string[];
+  agreed_scope: string | null;
+}
+
+/** GET /sessions/{id} debug view. */
+export interface SessionInfo {
+  session_id: string;
+  message_count: number;
+  max_turns: number;
+  metadata: ProjectMetadata;
+}
+
+/** Local view-model for one rendered turn in the conversation thread. */
+export interface ConversationTurn {
+  transcript: string;
+  attachments: string[];
+  response: EstimationResponse;
+}
+
+/** One persisted message of a session's history (GET /sessions/{id}/conversation). */
+export interface ConversationMessage {
+  role: 'user' | 'assistant';
+  content: string;
+  created_at: string;
+}
+
+/** Full turn-by-turn history of a session. */
+export interface Conversation {
+  session_id: string;
+  max_turns: number;
+  metadata: ProjectMetadata;
+  messages: ConversationMessage[];
 }
 
 export interface EstimationCreate {

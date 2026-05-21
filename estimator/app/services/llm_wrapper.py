@@ -278,6 +278,95 @@ class LLMWrapper:
         )
         return result, meta
 
+    def complete_structured_chat(
+        self,
+        *,
+        messages: list[dict[str, str]],
+        response_model: type[T],
+        model_override: str | None = None,
+        max_tokens: int = 4000,
+        max_retries: int = 6,
+    ) -> tuple[T, dict[str, Any]]:
+        """Conversational variant of :meth:`complete_structured`.
+
+        Accepts a pre-built ``messages`` list (system + N user/assistant pairs +
+        current user). Bypasses the Router for deterministic routing — same
+        rationale as ``complete_structured``: the LiteLLM Router would
+        round-robin between deployments and could non-deterministically pick the
+        fallback. Instructor handles re-prompts when Pydantic validators raise.
+        Token usage / cost are captured via ``create_with_completion`` so
+        conversational turns are observable, exactly like the single-shot path.
+        """
+        target_model = model_override or self.primary_model
+        api_key = (
+            self.anthropic_api_key
+            if _provider_from_model(target_model) == "anthropic"
+            else self.openai_api_key
+        )
+
+        log.info(
+            "llm_structured_chat_started",
+            model=target_model,
+            response_model=response_model.__name__,
+            messages=len(messages),
+        )
+        t0 = time.perf_counter()
+        try:
+            result, completion = self._instructor.chat.completions.create_with_completion(
+                model=target_model,
+                api_key=api_key,
+                timeout=self.timeout,
+                messages=messages,
+                response_model=response_model,
+                max_tokens=max_tokens,
+                max_retries=max_retries,
+            )
+        except Exception as exc:
+            latency_ms = int((time.perf_counter() - t0) * 1000)
+            log.error(
+                "llm_structured_chat_failed",
+                error_type=type(exc).__name__,
+                error=str(exc),
+                latency_ms=latency_ms,
+            )
+            raise
+
+        latency_ms = int((time.perf_counter() - t0) * 1000)
+        usage = getattr(completion, "usage", None)
+        input_tokens = int(getattr(usage, "prompt_tokens", 0) or 0)
+        output_tokens = int(getattr(usage, "completion_tokens", 0) or 0)
+        total_tokens = int(
+            getattr(usage, "total_tokens", input_tokens + output_tokens)
+            or (input_tokens + output_tokens)
+        )
+        try:
+            finish_reason = (completion.choices[0].finish_reason or "stop").lower()
+        except (AttributeError, IndexError):
+            finish_reason = "stop"
+
+        meta = {
+            "model": _normalise_model_name(target_model),
+            "provider": _provider_from_model(target_model),
+            "latency_ms": latency_ms,
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "total_tokens": total_tokens,
+            "cost_usd": _estimate_cost(target_model, input_tokens, output_tokens),
+            "finish_reason": finish_reason,
+        }
+        log.info(
+            "llm_structured_chat_completed",
+            model=meta["model"],
+            provider=meta["provider"],
+            latency_ms=latency_ms,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            total_tokens=total_tokens,
+            cost_usd=meta["cost_usd"],
+            finish_reason=finish_reason,
+        )
+        return result, meta
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------

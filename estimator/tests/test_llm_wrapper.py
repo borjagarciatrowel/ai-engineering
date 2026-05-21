@@ -131,3 +131,32 @@ def test_thinking_budget_pads_max_tokens_when_anthropic_override(wrapper: LLMWra
 # were deleted. Structured output via Instructor (complete_structured) replaces
 # token streaming; tests for that path live in test_estimate_endpoint.py with a
 # mocked EstimationService.
+
+
+def test_complete_structured_chat_captures_usage(wrapper: LLMWrapper) -> None:
+    """The conversational primitive must surface token usage / cost in meta,
+    same as the single-shot complete_structured (it powers per-turn telemetry)."""
+    from app.sessions.models import ProjectMetadata
+
+    fake = _fake_completion(model="gpt-4o-mini", input_tokens=120, output_tokens=30)
+    model_instance = ProjectMetadata(project_name="Nimbus")
+    with patch.object(
+        wrapper._instructor.chat.completions,
+        "create_with_completion",
+        return_value=(model_instance, fake),
+    ) as mocked:
+        result, meta = wrapper.complete_structured_chat(
+            messages=[
+                {"role": "system", "content": "sys"},
+                {"role": "user", "content": "usr"},
+            ],
+            response_model=ProjectMetadata,
+        )
+    assert mocked.call_count == 1
+    assert result.project_name == "Nimbus"
+    assert meta["input_tokens"] == 120
+    assert meta["output_tokens"] == 30
+    assert meta["total_tokens"] == 150
+    assert meta["cost_usd"] >= 0.0
+    assert meta["provider"] == "openai"
+    assert meta["model"] == "gpt-4o-mini"

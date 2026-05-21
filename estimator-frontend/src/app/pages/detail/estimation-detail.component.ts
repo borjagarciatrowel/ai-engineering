@@ -2,7 +2,6 @@ import { CommonModule } from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
-  OnDestroy,
   OnInit,
   computed,
   inject,
@@ -33,15 +32,22 @@ import {
   OUTPUT_FORMATS,
   OutputFormat,
   PROJECT_TYPES,
+  ProjectMetadata,
   ProjectType,
   STATUS_META,
 } from '../../models/estimation';
 import { EstimationService } from '../../services/estimation.service';
 
-const DESCRIPTION_MAX = 80000;
+const TRANSCRIPT_MIN = 20;
+const TRANSCRIPT_MAX = 80000;
 const OUT_OF_SCOPE_PREFIX = 'Out of scope:';
 const LOW_CONFIDENCE_THRESHOLD = 30;
-const POLL_INTERVAL_MS = 2500;
+
+/** One rendered turn of the conversation. */
+interface DetailConversationTurn {
+  transcript: string;
+  result: EstimationResult | null;
+}
 
 @Component({
   selector: 'app-estimation-detail',
@@ -64,7 +70,7 @@ const POLL_INTERVAL_MS = 2500;
   templateUrl: './estimation-detail.component.html',
   styleUrl: './estimation-detail.component.scss',
 })
-export class EstimationDetailComponent implements OnInit, OnDestroy {
+export class EstimationDetailComponent implements OnInit {
   private readonly fb = inject(FormBuilder);
   private readonly api = inject(EstimationService);
   private readonly route = inject(ActivatedRoute);
@@ -75,39 +81,45 @@ export class EstimationDetailComponent implements OnInit, OnDestroy {
   readonly projectTypes = PROJECT_TYPES;
   readonly detailLevels = DETAIL_LEVELS;
   readonly outputFormats = OUTPUT_FORMATS;
-  readonly descriptionMax = DESCRIPTION_MAX;
+  readonly transcriptMax = TRANSCRIPT_MAX;
+  readonly transcriptMin = TRANSCRIPT_MIN;
   readonly lowConfidenceThreshold = LOW_CONFIDENCE_THRESHOLD;
 
   readonly record = signal<EstimationRecord | null>(null);
   readonly loading = signal(true);
   readonly busy = signal(false);
-  readonly busyLabel = signal('');
   readonly errorMessage = signal<string | null>(null);
 
+  readonly metadata = signal<ProjectMetadata | null>(null);
+  readonly turns = signal<DetailConversationTurn[]>([]);
+  readonly files = signal<File[]>([]);
+
   readonly status = computed(() => this.record()?.status ?? null);
-  readonly isEditing = computed(() => this.status() === 'editing');
-  readonly isRunning = computed(() => this.status() === 'running' || this.busy());
-  readonly isFinished = computed(() => this.status() === 'finished');
-  readonly isError = computed(() => this.status() === 'error');
+  readonly isConversational = computed(() => !!this.record()?.session_id);
+  readonly metadataIsEmpty = computed(() => {
+    const m = this.metadata();
+    return (
+      !m ||
+      (!m.project_name &&
+        m.assumed_team_size == null &&
+        m.mentioned_technologies.length === 0 &&
+        !m.agreed_scope)
+    );
+  });
 
   readonly form = this.fb.nonNullable.group({
-    title: ['', [Validators.required, Validators.maxLength(200)]],
+    transcript: ['', [Validators.required, Validators.minLength(TRANSCRIPT_MIN)]],
     project_type: ['web_saas' as ProjectType, Validators.required],
     detail_level: ['medium' as DetailLevel, Validators.required],
     output_format: ['phases_table' as OutputFormat, Validators.required],
-    description: ['', [Validators.maxLength(DESCRIPTION_MAX)]],
   });
 
   private id = '';
-  private pollHandle: ReturnType<typeof setInterval> | null = null;
+  private sessionId: string | null = null;
 
   async ngOnInit(): Promise<void> {
     this.id = this.route.snapshot.paramMap.get('id') ?? '';
     await this.load();
-  }
-
-  ngOnDestroy(): void {
-    this.stopPoll();
   }
 
   private async load(): Promise<void> {
@@ -115,7 +127,17 @@ export class EstimationDetailComponent implements OnInit, OnDestroy {
     this.errorMessage.set(null);
     try {
       const rec = await this.api.get(this.id);
-      this.applyRecord(rec);
+      this.record.set(rec);
+      this.sessionId = rec.session_id;
+      // Reuse the last turn's parameters as the composer defaults.
+      this.form.patchValue({
+        project_type: rec.project_type,
+        detail_level: rec.detail_level,
+        output_format: rec.output_format,
+      });
+      if (rec.session_id) {
+        await this.loadConversation(rec.session_id);
+      }
     } catch (err) {
       this.errorMessage.set(err instanceof Error ? err.message : String(err));
     } finally {
@@ -123,56 +145,54 @@ export class EstimationDetailComponent implements OnInit, OnDestroy {
     }
   }
 
-  private applyRecord(rec: EstimationRecord): void {
-    this.record.set(rec);
-    this.form.patchValue({
-      title: rec.title,
-      project_type: rec.project_type,
-      detail_level: rec.detail_level,
-      output_format: rec.output_format,
-      description: rec.description,
-    });
-    if (rec.status === 'running') {
-      this.startPoll();
-    } else {
-      this.stopPoll();
+  private async loadConversation(sessionId: string): Promise<void> {
+    const conv = await this.api.getConversation(sessionId);
+    this.metadata.set(conv.metadata);
+    const turns: DetailConversationTurn[] = [];
+    for (let i = 0; i < conv.messages.length; i += 2) {
+      const user = conv.messages[i];
+      const assistant = conv.messages[i + 1];
+      let result: EstimationResult | null = null;
+      if (assistant) {
+        try {
+          result = JSON.parse(assistant.content) as EstimationResult;
+        } catch {
+          result = null;
+        }
+      }
+      turns.push({ transcript: user?.content ?? '', result });
     }
+    this.turns.set(turns);
   }
 
-  async save(): Promise<void> {
-    if (this.busy() || this.form.invalid) {
+  onFilesSelected(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    if (!input.files) return;
+    this.files.set([...this.files(), ...Array.from(input.files)]);
+    input.value = '';
+  }
+
+  removeFile(index: number): void {
+    this.files.set(this.files().filter((_, i) => i !== index));
+  }
+
+  async send(): Promise<void> {
+    if (!this.sessionId || this.busy() || this.form.invalid) {
       this.form.markAllAsTouched();
       return;
     }
     this.busy.set(true);
-    this.busyLabel.set('Guardando…');
     this.errorMessage.set(null);
+    const fields = this.form.getRawValue();
     try {
-      const rec = await this.api.update(this.id, this.form.getRawValue());
-      this.applyRecord(rec);
+      await this.api.estimateInSession(this.sessionId, fields, this.files());
+      await this.loadConversation(this.sessionId);
+      // The mirror updates title/status; refresh the header.
+      this.record.set(await this.api.get(this.id));
+      this.form.controls.transcript.reset('');
+      this.files.set([]);
     } catch (err) {
       this.errorMessage.set(err instanceof Error ? err.message : String(err));
-    } finally {
-      this.busy.set(false);
-    }
-  }
-
-  /** Persist the latest prompt then run. reestimate=true clears caches first. */
-  async runFlow(reestimate: boolean): Promise<void> {
-    if (this.busy() || this.form.invalid) {
-      this.form.markAllAsTouched();
-      return;
-    }
-    this.busy.set(true);
-    this.busyLabel.set(reestimate ? 'Reestimando…' : 'Ejecutando…');
-    this.errorMessage.set(null);
-    try {
-      await this.api.update(this.id, this.form.getRawValue());
-      const rec = await this.api.run(this.id, { reestimate });
-      this.applyRecord(rec);
-    } catch (err) {
-      this.errorMessage.set(err instanceof Error ? err.message : String(err));
-      await this.load();
     } finally {
       this.busy.set(false);
     }
@@ -188,36 +208,12 @@ export class EstimationDetailComponent implements OnInit, OnDestroy {
     const confirmed = await firstValueFrom(ref.afterClosed());
     if (!confirmed) return;
     this.busy.set(true);
-    this.busyLabel.set('Eliminando…');
     try {
       await this.api.remove(this.id);
       await this.router.navigate(['/']);
     } catch (err) {
       this.errorMessage.set(err instanceof Error ? err.message : String(err));
       this.busy.set(false);
-    }
-  }
-
-  private startPoll(): void {
-    if (this.pollHandle) return;
-    this.pollHandle = setInterval(async () => {
-      try {
-        const rec = await this.api.get(this.id);
-        if (rec.status !== 'running') {
-          this.applyRecord(rec); // also stops the poll
-        } else {
-          this.record.set(rec);
-        }
-      } catch {
-        /* keep polling; transient errors are ignored */
-      }
-    }, POLL_INTERVAL_MS);
-  }
-
-  private stopPoll(): void {
-    if (this.pollHandle) {
-      clearInterval(this.pollHandle);
-      this.pollHandle = null;
     }
   }
 
@@ -237,10 +233,11 @@ export class EstimationDetailComponent implements OnInit, OnDestroy {
     return value == null ? '—' : `$${value.toFixed(4)}`;
   }
 
-  descriptionError(): string | null {
-    const ctrl = this.form.controls.description;
+  transcriptError(): string | null {
+    const ctrl = this.form.controls.transcript;
     if (!ctrl.touched) return null;
-    if (ctrl.hasError('maxlength')) return `Máximo ${DESCRIPTION_MAX} caracteres`;
+    if (ctrl.hasError('required')) return 'La transcripción es obligatoria';
+    if (ctrl.hasError('minlength')) return `Mínimo ${TRANSCRIPT_MIN} caracteres`;
     return null;
   }
 }

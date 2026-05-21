@@ -57,6 +57,7 @@ _ADDED_COLUMNS: dict[str, str] = {
     "total_tokens": "INTEGER",
     "cost_usd": "DOUBLE PRECISION",
     "finish_reason": "VARCHAR(40)",
+    "session_id": "VARCHAR(36)",
 }
 
 

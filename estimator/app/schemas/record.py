@@ -67,6 +67,7 @@ class EstimationRecord(BaseModel):
     id: str
     title: str
     status: EstimationStatus
+    session_id: str | None = None
     description: str
     project_type: ProjectType
     detail_level: DetailLevel

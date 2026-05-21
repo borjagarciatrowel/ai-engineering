@@ -6,13 +6,17 @@ from functools import lru_cache
 
 import redis
 import structlog
+from fastapi import Depends
 from openai import OpenAI
+from sqlalchemy.orm import Session as SaSession
 
 from app.cache.semantic import EstimationSemanticCache
 from app.config import get_settings
+from app.db import get_db
 from app.services.cache import EstimationCache
 from app.services.estimation import EstimationService
 from app.services.llm_wrapper import LLMWrapper
+from app.sessions.store import DbSessionStore
 
 log = structlog.get_logger()
 
@@ -86,9 +90,23 @@ def get_semantic_cache() -> EstimationSemanticCache | None:
 
 @lru_cache
 def get_estimation_service() -> EstimationService:
+    settings = get_settings()
     return EstimationService(
         llm_wrapper=get_llm_wrapper(),
         exact_cache=get_cache(),
         semantic_cache=get_semantic_cache(),
         openai_client=get_openai_client(),
+        metadata_extractor_model=settings.METADATA_EXTRACTOR_MODEL,
     )
+
+
+def get_session_store(db: SaSession = Depends(get_db)) -> DbSessionStore:
+    """Postgres-backed conversational session store (Session 5).
+
+    Request-scoped: it wraps the per-request ``get_db`` session. The project
+    deviation from the brief's in-memory dict — sessions live in the
+    ``chat_sessions`` table so they survive restarts and are shared across
+    workers.
+    """
+    settings = get_settings()
+    return DbSessionStore(db, max_turns=settings.MAX_CONVERSATION_TURNS)

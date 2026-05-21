@@ -29,6 +29,10 @@ class Estimation(Base):
     title: Mapped[str] = mapped_column(String(200))
     status: Mapped[str] = mapped_column(String(20), default="editing", index=True)
 
+    # Set when this row mirrors a conversational session (one row per session,
+    # updated each turn) so conversational estimations show in the grid too.
+    session_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+
     # Request payload
     description: Mapped[str] = mapped_column(Text, default="")
     project_type: Mapped[str] = mapped_column(String(40))
@@ -53,6 +57,33 @@ class Estimation(Base):
     # Error info (populated on a failed run)
     error_reason: Mapped[str | None] = mapped_column(String(60), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class ChatSession(Base):
+    """A persisted conversational estimation session (Session 5).
+
+    The Session-5 brief keeps conversational memory in a process-memory dict.
+    We persist it instead: ``history`` and ``project_metadata`` are the JSON
+    dumps of the Pydantic ``ConversationHistory`` / ``ProjectMetadata`` models,
+    so a restart (or a second worker) doesn't drop the conversation.
+
+    Note: the column is ``project_metadata``, not ``metadata`` — ``metadata`` is
+    reserved on SQLAlchemy's declarative ``Base``.
+    """
+
+    __tablename__ = "chat_sessions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    max_turns: Mapped[int] = mapped_column(Integer, default=6)
+    history: Mapped[dict] = mapped_column(JSON, default=dict)
+    project_metadata: Mapped[dict] = mapped_column(JSON, default=dict)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()

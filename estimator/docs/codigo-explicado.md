@@ -36,6 +36,7 @@ Cuando lleguemos a una pieza, todas sus dependencias ya estarán explicadas.
 14. [El arranque de la aplicación (`main.py`)](#14-el-arranque-de-la-aplicación)
 15. [Cómo se ejecuta: entorno y Docker](#15-cómo-se-ejecuta-entorno-y-docker)
 16. [Mapa de dependencias completo](#16-mapa-de-dependencias-completo)
+17. [Memoria conversacional y adjuntos — sesión 5 (`sessions/`, `attachments/`)](#17-memoria-conversacional-y-adjuntos--sesión-5)
 
 ---
 
@@ -1244,6 +1245,331 @@ flowchart BT
 
 ---
 
+## 17. Memoria conversacional y adjuntos — sesión 5
+
+Hasta aquí el estimator era **transaccional**: entra una transcripción, sale una
+estimación, y se olvida. La sesión 5 lo convierte en **conversacional**: dentro de una
+misma sesión el cliente puede refinar el alcance turno a turno, adjuntar documentos, y el
+sistema **recuerda de qué proyecto estamos hablando** sin reenviar todo el historial bruto
+en cada llamada.
+
+> **Desvío respecto al enunciado.** El ejercicio pide guardar las sesiones en un
+> diccionario en memoria del proceso ("sin BBDD, sin Redis"). Aquí hacemos algo distinto a
+> propósito: como ya tenemos Postgres montado para las fichas (sección 12), **persistimos
+> también la memoria conversacional en la base de datos**. Así un reinicio del servicio —o
+> un segundo worker de uvicorn— no borra la conversación. Es la única diferencia de fondo;
+> el resto sigue el patrón canónico de la sesión.
+
+### 17.1 La distinción clave: historial vs memoria
+
+Son dos cosas distintas y se gestionan por separado:
+
+- **Historial** (`ConversationHistory`): el array `messages` que viaja a la API del LLM en
+  cada llamada (los pares `user`/`assistant`). Crece sin parar, así que se le aplica una
+  **ventana deslizante**: solo se conservan los últimos N turnos.
+- **Memoria** (`ProjectMetadata`): los *hechos* del proyecto (nombre, tamaño de equipo,
+  tecnologías, alcance acordado). Vive **aparte** del historial y se inyecta en el system
+  prompt en cada turno. Es lo que permite que el modelo "recuerde" el nombre del proyecto
+  aunque ese turno ya se haya caído de la ventana deslizante.
+
+Separarlas es el objetivo de aprendizaje central: el historial es volátil y acotado; la
+memoria es un resumen destilado y duradero.
+
+### 17.2 Las estructuras de datos
+
+**Archivo:** `app/sessions/models.py` (Pydantic, agnóstico al almacenamiento)
+
+```python
+class Message(BaseModel):           # un mensaje del historial (NO el system prompt)
+    role: Literal["user", "assistant"]
+    content: str
+    created_at: datetime
+
+class ConversationHistory(BaseModel):
+    max_turns: int = 6              # un "turno" = un par user+assistant
+    messages: list[Message] = []
+    def append(self, *, user, assistant): ...   # añade un par y recorta
+    def to_messages(self): ...                  # array listo para el LLM (sin system)
+    def _trim(self): ...                         # mantiene la ventana
+
+class ProjectMetadata(BaseModel):
+    project_name: str | None
+    assumed_team_size: int | None
+    mentioned_technologies: list[str] = []
+    agreed_scope: str | None
+    def is_empty(self): ...
+    def merge_with(self, update): ...            # fusión: escalares pisan, listas se unen
+
+class Session(BaseModel):           # vista en memoria de una fila chat_sessions
+    session_id: str
+    history: ConversationHistory
+    metadata: ProjectMetadata
+    created_at: datetime
+```
+
+El `system prompt` **no** es un `Message`: se regenera en cada turno a partir de la
+`ProjectMetadata` actual, así que no tiene sentido guardarlo dentro del historial.
+
+### 17.3 La ventana deslizante
+
+```python
+def _trim(self) -> None:
+    max_messages = self.max_turns * 2
+    overflow = len(self.messages) - max_messages
+    if overflow > 0:
+        if overflow % 2 != 0:      # descarta en pares para no romper la alternancia
+            overflow += 1
+        del self.messages[:overflow]
+```
+
+`max_turns=6` por defecto (configurable). Cuando el historial supera 6 pares
+(12 mensajes), se descartan los **más antiguos** desde el principio, siempre en pares para
+que la secuencia siga siendo `user, assistant, user, assistant…`. La invariante se aplica
+tras cada `append`, así que nadie ve nunca un historial demasiado grande.
+
+¿Por qué la ventana deslizante es el punto de partida razonable? Porque es simple y acota
+el coste/latencia de forma predecible. Lo que te empuja a sustituirla (resumen acumulativo,
+anclas) es que pierde información de turnos viejos — y por eso existe la `ProjectMetadata`,
+que rescata los hechos importantes antes de que se caigan de la ventana.
+
+### 17.4 La fusión de metadata
+
+```python
+def merge_with(self, update):
+    # tecnologías: unión sin distinguir mayúsculas, preservando orden
+    # escalares (nombre, equipo, alcance): el valor no-nulo de `update` pisa al anterior
+    return ProjectMetadata(
+        project_name=update.project_name or self.project_name,
+        assumed_team_size=update.assumed_team_size or self.assumed_team_size,
+        mentioned_technologies=merged_tech,
+        agreed_scope=update.agreed_scope or self.agreed_scope,
+    )
+```
+
+"Pisar escalares + unir listas" es la política correcta aquí: el extractor puede *refinar*
+el nombre del proyecto o el tamaño de equipo según se aclara la conversación, pero las
+tecnologías **se acumulan** (que el usuario añada Stripe no debe borrar React y Postgres).
+Devolver `None` en un campo significa "no tengo nada nuevo que decir", y el valor anterior
+se conserva.
+
+### 17.5 El store persistido en base de datos (el desvío)
+
+**Archivo:** `app/sessions/store.py`
+
+Aquí está la diferencia con el enunciado. En lugar de un `dict` en memoria, un
+`DbSessionStore` envuelve la sesión de SQLAlchemy (la misma `get_db` de la sección 12) y
+traduce entre la fila relacional y el modelo Pydantic:
+
+```python
+class DbSessionStore:
+    def __init__(self, db: SaSession, *, max_turns: int = 6): ...
+
+    def create(self) -> Session:          # INSERT de una fila nueva
+        row = ChatSession(max_turns=..., history=..., project_metadata=...)
+        self._db.add(row); self._db.commit(); self._db.refresh(row)
+        return self._to_session(row)
+
+    def get_or_404(self, session_id) -> Session:   # SELECT + reconstrucción Pydantic
+        ...
+
+    def save(self, session: Session) -> None:      # vuelca history + metadata mutados
+        row = self._db.get(ChatSession, session.session_id)
+        row.history = session.history.model_dump(mode="json")
+        row.project_metadata = session.metadata.model_dump(mode="json")
+        self._db.commit()
+```
+
+El truco: el servicio **muta** el objeto `Session` Pydantic (añade un turno, refresca la
+metadata) sin saber nada de SQL; luego el router llama a `store.save(session)` para
+persistir esos cambios. En `save` se asignan **dicts nuevos** (no se editan in-place) para
+que SQLAlchemy detecte que las columnas JSON están "sucias" sin necesidad de `MutableDict`.
+
+Mantener el servicio agnóstico al almacenamiento significa que el pipeline conversacional
+nunca importa el ORM: solo trabaja con Pydantic, igual que en los tests (donde el store usa
+sqlite).
+
+### 17.6 El modelo ORM `ChatSession`
+
+**Archivo:** `app/db_models.py`
+
+```python
+class ChatSession(Base):
+    __tablename__ = "chat_sessions"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    max_turns: Mapped[int] = mapped_column(Integer, default=6)
+    history: Mapped[dict] = mapped_column(JSON, default=dict)            # dump de ConversationHistory
+    project_metadata: Mapped[dict] = mapped_column(JSON, default=dict)   # dump de ProjectMetadata
+    created_at / updated_at
+```
+
+`history` y `project_metadata` son simplemente el `model_dump(mode="json")` de los modelos
+Pydantic. Toda la lógica de ventana deslizante y fusión sigue viviendo en Pydantic; la BD
+solo es el sitio donde se aparcan entre peticiones. `create_all` (sección 12) crea esta
+tabla automáticamente porque importa `db_models`.
+
+> Detalle: la columna se llama `project_metadata`, **no** `metadata` — `metadata` es un
+> atributo reservado en la `Base` declarativa de SQLAlchemy.
+
+### 17.7 Adjuntos: Camino B (extracción local)
+
+**Archivo:** `app/attachments/extractor.py`
+
+El ejercicio da a elegir entre dos caminos. Elegimos el **Camino B (extracción local)**:
+extraer el texto del PDF/Word *dentro* del servicio y meterlo en el prompt como texto,
+en vez de subir el binario a la Files API de un proveedor multimodal (Camino A).
+
+```python
+def extract_text(*, filename, content, max_chars):
+    ext = _extension(filename)                  # .pdf → pypdf, .docx → python-docx
+    if ext not in {".pdf", ".docx"}:
+        raise UnsupportedAttachmentError(...)   # → HTTP 415
+    text = _extract_pdf(content) | _extract_docx(content)
+    return text[:max_chars]                      # recorte para proteger el presupuesto
+
+def enrich_transcript(*, transcript, attachments):
+    # concatena con vallas explícitas:
+    #   --- attachment: spec.pdf ---
+    #   <texto>
+    #   --- end attachment ---
+```
+
+Por qué Camino B: deja el wrapper del LLM **agnóstico al proveedor** (texto entra, texto
+sale) y prepara el terreno para el *chunking*/RAG del módulo 3. El recorte a `max_chars`
+(60.000 por defecto) es un cortafuegos para no reventar la ventana de contexto; el troceado
+de verdad llega en RAG. Las fallas de extracción por página se tragan (un PDF con una
+página corrupta sigue dando el resto); una falla global lanza `AttachmentExtractionError`
+(→ HTTP 422).
+
+### 17.8 Prompts v2 y extracción de metadata
+
+**Archivos:** `app/prompts/estimation/v2/{system,user}.j2`,
+`app/prompts/metadata_extraction/v1/{system,user}.j2`
+
+El system prompt **v2** es el v1 más un bloque al principio:
+
+```jinja
+<project_metadata>
+{% if metadata_is_empty %}
+(No project context yet — this is the first turn of the session.)
+{% else %}
+- project_name: {{ metadata.project_name or "unknown" }}
+- assumed_team_size: ...
+- mentioned_technologies: ...
+- agreed_scope: ...
+{% endif %}
+</project_metadata>
+```
+
+Si la metadata está vacía (primer turno), el bloque lo dice explícitamente. El prompt
+instruye al modelo a **tratar ese bloque como la fuente de verdad** y a no pedir
+información que ya está ahí o en el historial. El cargador (`prompts/loader.py`) gana dos
+funciones nuevas: `render_conversational_prompt` (v2, recibe la `ProjectMetadata`) y
+`render_metadata_extraction_prompt` (para el extractor).
+
+### 17.9 El wrapper conversacional
+
+**Archivo:** `app/services/llm_wrapper.py` → método `complete_structured_chat`
+
+`complete_structured` (sección 7.3) recibe un único `user_message`. El nuevo
+`complete_structured_chat` recibe un **array `messages` ya montado** (system + N pares del
+historial + el user actual). Igual que su hermano: salta el Router para enrutar de forma
+determinista, usa Instructor para reintentar si un validador Pydantic falla, y —como en
+nuestra versión de la sesión 4— captura **tokens y coste** vía `create_with_completion`,
+para que cada turno conversacional también sea observable.
+
+### 17.10 El extractor de metadata
+
+**Archivo:** `app/sessions/metadata_extractor.py`
+
+```python
+def update_metadata(*, previous, transcript, result, llm_wrapper, model):
+    # 2ª llamada al LLM, modelo barato (gpt-4o-mini), prompt corto → ProjectMetadata
+    try:
+        extracted, meta = llm_wrapper.complete_structured_chat(
+            messages=[...], response_model=ProjectMetadata, model_override=model)
+    except Exception:
+        return previous                 # si falla, devolvemos la metadata anterior intacta
+    return previous.merge_with(extracted)
+```
+
+Elegimos el **extractor LLM** en vez de la heurística con regex. Es una segunda llamada por
+turno (con un modelo pequeño y barato), pero mucho más robusto que parsear la respuesta a
+mano: entiende sinónimos, normaliza mayúsculas de tecnologías y resume el alcance. El coste
+extra es asumible y la fiabilidad compensa. Si esa llamada falla por lo que sea, se registra
+y se devuelve la metadata anterior **sin tocar** — perder un turno de refresco es aceptable;
+congelar la sesión, no.
+
+### 17.11 El pipeline conversacional
+
+**Archivo:** `app/services/estimation.py` → método `estimate_conversational`
+
+Diferencias con el `estimate` transaccional (sección 10):
+
+1. **Sin cachés.** Cada turno depende del historial + la metadata, así que dos
+   transcripciones idénticas en sesiones distintas **no** son la misma llamada. `cached`
+   siempre es `False`.
+2. **System prompt v2** con el bloque `<project_metadata>` incrustado.
+3. Se monta el array: `[system v2] + historial (ya acotado) + [user actual]`.
+4. Llamada con `complete_structured_chat` + validadores Pydantic.
+5. Guardrail de salida (filtro, igual que antes).
+6. Se **añade el turno** al historial (la ventana recorta sola).
+7. Segunda pasada: el extractor refresca la `ProjectMetadata`.
+8. Se adjunta la telemetría (`LlmUsage`) igual que en el camino transaccional.
+
+El servicio solo *muta* el `Session`; **persistir es trabajo del router** (sección 17.12).
+
+### 17.12 Los endpoints
+
+**Archivo:** `app/routers/sessions.py`
+
+```
+POST /sessions                       → crea una sesión vacía, devuelve {session_id}
+GET  /sessions/{id}                  → vista de depuración: metadata + nº de mensajes
+POST /sessions/{id}/estimate         → un turno (multipart/form-data)
+```
+
+El endpoint de estimar acepta `multipart/form-data` (de ahí la dependencia
+`python-multipart`) porque mezcla **campos tipados** (transcript, project_type…) con
+**archivos** (`attachments: list[UploadFile]`). El flujo:
+
+```python
+session = store.get_or_404(session_id)          # 404 si no existe
+for upload in attachments:                        # extrae texto de cada adjunto (Camino B)
+    text = extract_text(...)                       # 415 no soportado / 422 ilegible
+enriched = enrich_transcript(transcript, ...)     # concatena con vallas
+response = service.estimate_conversational(session=session, transcript=enriched, ...)
+store.save(session)                               # ← vuelca history + metadata a Postgres
+_mirror_turn_to_grid(db, ...)                     # upsert en `estimations` → visible en el grid
+return response
+```
+
+El mapeo de errores replica el del router v1: `InputGuardrailViolation` → 400,
+`UnsupportedAttachmentError` → 415, `AttachmentExtractionError` → 422, sesión inexistente →
+404, y cualquier otra cosa → 502. La línea importante es **`store.save`**: es lo que hace que
+la memoria sea duradera.
+
+**Reflejo al grid.** Las sesiones viven en `chat_sessions`, una tabla aparte de
+`estimations` (la que alimenta el grid de la landing). Para que una estimación hecha en la
+interfaz conversacional **también se vea en el grid**, cada turno hace un *upsert* de una
+fila en `estimations` (`_mirror_turn_to_grid`): **una fila por sesión** (localizada por la
+columna nueva `estimations.session_id`), actualizada en cada turno con el último resultado,
+título tomado del `project_name`, estado `finished`. Es *best-effort*: si el reflejo falla,
+la respuesta conversacional no se rompe — la fuente de verdad sigue siendo `chat_sessions`.
+
+### 17.13 El cableado
+
+**Archivos:** `app/config.py`, `app/dependencies.py`, `app/main.py`
+
+- `config.py` añade `MAX_CONVERSATION_TURNS` (6), `MAX_ATTACHMENT_CHARS` (60.000) y
+  `METADATA_EXTRACTOR_MODEL` (gpt-4o-mini).
+- `dependencies.py` añade `get_session_store`, que **depende de `get_db`**: es por petición
+  (no es un singleton cacheado), porque envuelve la sesión de BD de esa petición. Por eso
+  en los tests basta con sobreescribir `get_db` (apuntando a sqlite) para que el store use
+  esa BD sin tocar nada más.
+- `main.py` registra el router: `app.include_router(sessions.router)`.
+
+---
+
 ## Resumen en una página
 
 | Pieza | Archivo | Responsabilidad |
@@ -1264,3 +1590,10 @@ flowchart BT
 | Endpoint estimar | `routers/estimations.py` | `POST /api/v1/estimate` (sin estado) |
 | Endpoints CRUD | `routers/records.py` | CRUD + `run` (ciclo de vida + telemetría) |
 | Arranque | `main.py` | FastAPI app, CORS, logging, `/health`, lifespan |
+| Memoria (modelos) | `sessions/models.py` | `ConversationHistory` (ventana deslizante) + `ProjectMetadata` (fusión) + `Session` |
+| Memoria (store) | `sessions/store.py` | `DbSessionStore`: persiste la sesión en Postgres (desvío del enunciado) |
+| Memoria (ORM) | `db_models.py` | Fila `chat_sessions` (history + project_metadata como JSON) |
+| Extractor metadata | `sessions/metadata_extractor.py` | 2ª llamada LLM por turno → refresca `ProjectMetadata` |
+| Adjuntos | `attachments/extractor.py` | Camino B: extrae texto de PDF/DOCX y lo concatena al prompt |
+| Pipeline conversacional | `services/estimation.py` | `estimate_conversational`: v2 + historial + extractor |
+| Endpoints sesión | `routers/sessions.py` | `POST /sessions`, `POST /sessions/{id}/estimate` (multipart) |

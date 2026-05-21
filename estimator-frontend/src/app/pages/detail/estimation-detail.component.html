@@ -10,242 +10,295 @@
     </div>
   } @else {
     @if (record(); as r) {
-    <div class="detail-grid">
-      <!-- ---------- Left: editable request ---------- -->
-      <section class="edit-panel">
-        <mat-card appearance="outlined">
-          <mat-card-header>
-            <mat-card-title>
-              <span class="status-badge" [ngClass]="statusMeta[r.status].cssClass">
-                {{ statusMeta[r.status].label }}
-              </span>
-            </mat-card-title>
-            <mat-card-subtitle>
-              {{ isEditing() ? 'Edita la solicitud y ejecútala.' : 'Cambia el prompt y reestima, o elimínala.' }}
-            </mat-card-subtitle>
-          </mat-card-header>
-
-          <mat-card-content>
-            <form [formGroup]="form" class="estimation-form">
-              <mat-form-field appearance="outline">
-                <mat-label>Título</mat-label>
-                <input matInput formControlName="title" maxlength="200" />
-              </mat-form-field>
-
-              <mat-form-field appearance="outline">
-                <mat-label>Tipo de proyecto</mat-label>
-                <mat-select formControlName="project_type">
-                  @for (option of projectTypes; track option.value) {
-                    <mat-option [value]="option.value">{{ option.label }}</mat-option>
-                  }
-                </mat-select>
-              </mat-form-field>
-
-              <mat-form-field appearance="outline">
-                <mat-label>Nivel de detalle</mat-label>
-                <mat-select formControlName="detail_level">
-                  @for (option of detailLevels; track option.value) {
-                    <mat-option [value]="option.value">{{ option.label }}</mat-option>
-                  }
-                </mat-select>
-              </mat-form-field>
-
-              <mat-form-field appearance="outline">
-                <mat-label>Formato de salida</mat-label>
-                <mat-select formControlName="output_format">
-                  @for (option of outputFormats; track option.value) {
-                    <mat-option [value]="option.value">{{ option.label }}</mat-option>
-                  }
-                </mat-select>
-              </mat-form-field>
-
-              <mat-form-field appearance="outline" class="description-field">
-                <mat-label>Prompt / descripción del proyecto</mat-label>
-                <textarea
-                  matInput
-                  formControlName="description"
-                  rows="8"
-                  [maxlength]="descriptionMax"
-                  placeholder="Describe el alcance, integraciones, equipo y plazo."
-                ></textarea>
-                <mat-hint align="end">
-                  {{ form.controls.description.value.length }} / {{ descriptionMax }}
-                </mat-hint>
-                @if (descriptionError(); as message) {
-                  <mat-error>{{ message }}</mat-error>
-                }
-              </mat-form-field>
-
-              <div class="actions">
-                <button
-                  mat-stroked-button
-                  type="button"
-                  (click)="save()"
-                  [disabled]="busy() || form.invalid"
-                >
-                  <mat-icon>save</mat-icon>
-                  {{ isEditing() ? 'Guardar' : 'Guardar cambios' }}
-                </button>
-
-                @if (isEditing()) {
-                  <button
-                    mat-flat-button
-                    color="primary"
-                    type="button"
-                    (click)="runFlow(false)"
-                    [disabled]="busy() || form.invalid"
-                  >
-                    <mat-icon>auto_awesome</mat-icon>
-                    Ejecutar estimación
-                  </button>
-                } @else {
-                  <button
-                    mat-flat-button
-                    color="primary"
-                    type="button"
-                    (click)="runFlow(true)"
-                    [disabled]="busy() || form.invalid"
-                  >
-                    <mat-icon>refresh</mat-icon>
-                    Reestimar
-                  </button>
-                }
-
-                <span class="actions-spacer"></span>
-
-                <button
-                  mat-button
-                  type="button"
-                  class="delete-btn"
-                  (click)="confirmDelete()"
-                  [disabled]="busy()"
-                >
-                  <mat-icon>delete</mat-icon>
-                  Eliminar
-                </button>
-              </div>
-
-              @if (isRunning()) {
-                <div class="running-row">
-                  <mat-progress-bar mode="indeterminate"></mat-progress-bar>
-                  <span>{{ busyLabel() || 'Ejecutando…' }}</span>
-                </div>
-              }
-            </form>
-          </mat-card-content>
-        </mat-card>
-      </section>
-
-      <!-- ---------- Right: result / error ---------- -->
-      <section class="output-panel">
-        <mat-card appearance="outlined" class="output-card">
-          <mat-card-header>
-            <mat-card-title>Resultado</mat-card-title>
-            @if (r.status === 'finished' && r.result) {
-              <mat-card-subtitle>
-                {{ r.model }} · {{ r.latency_ms }} ms
-                @if (r.cached) { · <span class="cached-badge">cache</span> }
-                · prompt {{ r.prompt_version }}
-              </mat-card-subtitle>
-            }
-          </mat-card-header>
-
-          <mat-card-content>
-            @if (errorMessage(); as err) {
-              <div class="error-box">
-                <mat-icon>error</mat-icon>
-                <div>
-                  <strong>Algo falló</strong>
-                  <p>{{ err }}</p>
-                </div>
-              </div>
-            }
-
-            @if (r.status === 'error' && r.error_message) {
-              <div class="error-box">
-                <mat-icon>error</mat-icon>
-                <div>
-                  <strong>Estimación con error{{ r.error_reason ? ' · ' + r.error_reason : '' }}</strong>
-                  <p>{{ r.error_message }}</p>
-                </div>
-              </div>
-            }
-
-            @if (r.result; as res) {
-              <div class="result">
-                <p class="result-summary" [class.is-out-of-scope]="isOutOfScope(res)">
-                  {{ res.summary }}
-                </p>
-
-                <div class="result-stats">
-                  <div class="metric is-accent">
-                    <span class="metric-label">Coste total</span>
-                    <span class="metric-value">{{ formatEur(res.total_cost_eur) }}</span>
-                  </div>
-                  <div class="metric">
-                    <span class="metric-label">Duración</span>
-                    <span class="metric-value">{{ res.total_duration_weeks }} sem</span>
-                  </div>
-                  <div class="metric">
-                    <span class="metric-label">Confianza</span>
-                    <span
-                      class="metric-value"
-                      [class.is-low]="res.confidence_pct < lowConfidenceThreshold"
-                    >{{ res.confidence_pct }}%</span>
-                  </div>
-                </div>
-
-                <div class="phases-block">
-                  <p class="result-section-label">Fases</p>
-                  <table class="phases-table">
-                    <thead>
-                      <tr>
-                        <th>Fase</th>
-                        <th class="num">Sem.</th>
-                        <th class="num">Coste</th>
-                        <th>Resumen</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      @for (phase of res.phases; track $index) {
-                        <tr>
-                          <td class="phase-name">{{ phase.name }}</td>
-                          <td class="num">{{ phase.duration_weeks }}</td>
-                          <td class="num">{{ formatEur(phase.cost_eur) }}</td>
-                          <td class="phase-summary">{{ phase.summary }}</td>
-                        </tr>
-                      }
-                    </tbody>
-                  </table>
-                </div>
-
-                <div class="telemetry">
-                  <span class="tele"><span class="tele-k">in</span><span class="tele-v">{{ r.input_tokens ?? '—' }}</span></span>
-                  <span class="tele"><span class="tele-k">out</span><span class="tele-v">{{ r.output_tokens ?? '—' }}</span></span>
-                  <span class="tele"><span class="tele-k">total</span><span class="tele-v">{{ r.total_tokens ?? '—' }}</span></span>
-                  <span class="tele"><span class="tele-k">coste</span><span class="tele-v">{{ formatUsd(r.cost_usd) }}</span></span>
-                  <span class="tele"><span class="tele-k">latencia</span><span class="tele-v">{{ r.latency_ms ?? '—' }} ms</span></span>
-                  <span class="tele"><span class="tele-k">finish</span><span class="tele-v">{{ r.finish_reason ?? '—' }}</span></span>
-                </div>
-              </div>
-            } @else if (r.status !== 'error') {
-              <p class="placeholder">
-                @if (isRunning()) {
-                  Generando estimación…
-                } @else {
-                  Aún no se ha ejecutado. Pulsa <em>Ejecutar estimación</em>.
-                }
-              </p>
-            }
-          </mat-card-content>
-        </mat-card>
-      </section>
-    </div>
-    } @else {
-      <div class="error-box standalone">
-        <mat-icon>error</mat-icon>
-        <span>{{ errorMessage() || 'No se encontró la estimación.' }}</span>
+    <header class="detail-head">
+      <div class="head-title">
+        <span class="status-badge" [ngClass]="statusMeta[r.status].cssClass">
+          {{ statusMeta[r.status].label }}
+        </span>
+        <h1>{{ r.title }}</h1>
       </div>
+      <button mat-button type="button" class="delete-btn" (click)="confirmDelete()" [disabled]="busy()">
+        <mat-icon>delete</mat-icon>
+        Eliminar
+      </button>
+    </header>
+
+    @if (errorMessage(); as err) {
+      <div class="error-box">
+        <mat-icon>error</mat-icon>
+        <span>{{ err }}</span>
+      </div>
+    }
+
+    @if (isConversational()) {
+      <!-- ============ Conversational estimation ============ -->
+      <div class="chat-grid">
+        <!-- Left: composer + memory -->
+        <section class="left-col">
+          <mat-card appearance="outlined">
+            <mat-card-header>
+              <mat-card-title>Nuevo turno</mat-card-title>
+              <mat-card-subtitle>Describe o refina el proyecto. Adjunta PDFs o Word.</mat-card-subtitle>
+            </mat-card-header>
+            <mat-card-content>
+              <form [formGroup]="form" class="composer">
+                <mat-form-field appearance="outline" class="transcript-field">
+                  <mat-label>Transcripción</mat-label>
+                  <textarea
+                    matInput
+                    formControlName="transcript"
+                    rows="6"
+                    [maxlength]="transcriptMax"
+                    placeholder="p. ej. Queremos un CRM llamado Nimbus en React y Postgres para ventas…"
+                  ></textarea>
+                  <mat-hint align="end">
+                    {{ form.controls.transcript.value.length }} / {{ transcriptMax }}
+                  </mat-hint>
+                  @if (transcriptError(); as message) {
+                    <mat-error>{{ message }}</mat-error>
+                  }
+                </mat-form-field>
+
+                <div class="selects">
+                  <mat-form-field appearance="outline">
+                    <mat-label>Tipo</mat-label>
+                    <mat-select formControlName="project_type">
+                      @for (option of projectTypes; track option.value) {
+                        <mat-option [value]="option.value">{{ option.label }}</mat-option>
+                      }
+                    </mat-select>
+                  </mat-form-field>
+                  <mat-form-field appearance="outline">
+                    <mat-label>Detalle</mat-label>
+                    <mat-select formControlName="detail_level">
+                      @for (option of detailLevels; track option.value) {
+                        <mat-option [value]="option.value">{{ option.label }}</mat-option>
+                      }
+                    </mat-select>
+                  </mat-form-field>
+                  <mat-form-field appearance="outline">
+                    <mat-label>Formato</mat-label>
+                    <mat-select formControlName="output_format">
+                      @for (option of outputFormats; track option.value) {
+                        <mat-option [value]="option.value">{{ option.label }}</mat-option>
+                      }
+                    </mat-select>
+                  </mat-form-field>
+                </div>
+
+                <div class="attachments">
+                  <input
+                    #fileInput
+                    type="file"
+                    hidden
+                    multiple
+                    accept=".pdf,.docx"
+                    (change)="onFilesSelected($event)"
+                  />
+                  <button mat-stroked-button type="button" (click)="fileInput.click()" [disabled]="busy()">
+                    <mat-icon>attach_file</mat-icon>
+                    Adjuntar (PDF / Word)
+                  </button>
+                  @if (files().length > 0) {
+                    <ul class="file-chips">
+                      @for (file of files(); track $index) {
+                        <li class="file-chip">
+                          <mat-icon>description</mat-icon>
+                          <span class="file-name">{{ file.name }}</span>
+                          <button
+                            type="button"
+                            class="chip-remove"
+                            (click)="removeFile($index)"
+                            [disabled]="busy()"
+                            aria-label="Quitar adjunto"
+                          >
+                            <mat-icon>close</mat-icon>
+                          </button>
+                        </li>
+                      }
+                    </ul>
+                  }
+                </div>
+
+                <div class="composer-actions">
+                  <button
+                    mat-flat-button
+                    color="primary"
+                    type="button"
+                    (click)="send()"
+                    [disabled]="busy() || form.invalid"
+                  >
+                    <mat-icon>send</mat-icon>
+                    Enviar turno
+                  </button>
+                </div>
+
+                @if (busy()) {
+                  <div class="running-row">
+                    <mat-progress-bar mode="indeterminate"></mat-progress-bar>
+                    <span>Estimando…</span>
+                  </div>
+                }
+              </form>
+            </mat-card-content>
+          </mat-card>
+
+          <mat-card appearance="outlined" class="memory-card">
+            <mat-card-header>
+              <mat-card-title>
+                <mat-icon class="mem-icon">psychology</mat-icon>
+                Memoria del proyecto
+              </mat-card-title>
+              <mat-card-subtitle>project_metadata · {{ turns().length }} turnos</mat-card-subtitle>
+            </mat-card-header>
+            <mat-card-content>
+              @if (metadata(); as m) {
+                @if (metadataIsEmpty()) {
+                <p class="mem-empty">Sin contexto todavía — envía el primer turno.</p>
+                } @else {
+                <dl class="mem-list">
+                  <div class="mem-row"><dt>Proyecto</dt><dd>{{ m.project_name || '—' }}</dd></div>
+                  <div class="mem-row"><dt>Equipo</dt><dd>{{ m.assumed_team_size ?? '—' }}</dd></div>
+                  <div class="mem-row">
+                    <dt>Tecnologías</dt>
+                    <dd>
+                      @if (m.mentioned_technologies.length > 0) {
+                        <span class="tech-tags">
+                          @for (tech of m.mentioned_technologies; track tech) {
+                            <span class="tech-tag">{{ tech }}</span>
+                          }
+                        </span>
+                      } @else { — }
+                    </dd>
+                  </div>
+                  <div class="mem-row"><dt>Alcance</dt><dd>{{ m.agreed_scope || '—' }}</dd></div>
+                </dl>
+                }
+              } @else {
+                <p class="mem-empty">Sin contexto todavía — envía el primer turno.</p>
+              }
+            </mat-card-content>
+          </mat-card>
+        </section>
+
+        <!-- Right: conversation thread -->
+        <section class="thread-col">
+          @if (turns().length === 0) {
+            <div class="empty">
+              <mat-icon>forum</mat-icon>
+              <p>Aún no hay turnos. Envía una transcripción para empezar.</p>
+            </div>
+          } @else {
+            @for (turn of turns(); track $index) {
+              <div class="turn">
+                <div class="turn-user">
+                  <div class="turn-label"><mat-icon>person</mat-icon> Turno {{ $index + 1 }}</div>
+                  <p class="turn-transcript">{{ turn.transcript }}</p>
+                </div>
+                @if (turn.result; as res) {
+                  <div class="turn-assistant">
+                    <p class="result-summary" [class.is-out-of-scope]="isOutOfScope(res)">
+                      {{ res.summary }}
+                    </p>
+                    <div class="result-stats">
+                      <div class="metric is-accent">
+                        <span class="metric-label">Coste total</span>
+                        <span class="metric-value">{{ formatEur(res.total_cost_eur) }}</span>
+                      </div>
+                      <div class="metric">
+                        <span class="metric-label">Duración</span>
+                        <span class="metric-value">{{ res.total_duration_weeks }} sem</span>
+                      </div>
+                      <div class="metric">
+                        <span class="metric-label">Confianza</span>
+                        <span
+                          class="metric-value"
+                          [class.is-low]="res.confidence_pct < lowConfidenceThreshold"
+                          >{{ res.confidence_pct }}%</span
+                        >
+                      </div>
+                    </div>
+                    <table class="phases-table">
+                      <thead>
+                        <tr><th>Fase</th><th class="num">Sem.</th><th class="num">Coste</th><th>Resumen</th></tr>
+                      </thead>
+                      <tbody>
+                        @for (phase of res.phases; track $index) {
+                          <tr>
+                            <td class="phase-name">{{ phase.name }}</td>
+                            <td class="num">{{ phase.duration_weeks }}</td>
+                            <td class="num">{{ formatEur(phase.cost_eur) }}</td>
+                            <td class="phase-summary">{{ phase.summary }}</td>
+                          </tr>
+                        }
+                      </tbody>
+                    </table>
+                  </div>
+                }
+              </div>
+            }
+          }
+        </section>
+      </div>
+    } @else {
+      <!-- ============ Legacy single-shot estimation (read-only) ============ -->
+      <div class="legacy-note">
+        <mat-icon>history</mat-icon>
+        Estimación heredada (single-shot, sin conversación).
+      </div>
+      @if (r.error_message) {
+        <div class="error-box">
+          <mat-icon>error</mat-icon>
+          <div>
+            <strong>Estimación con error{{ r.error_reason ? ' · ' + r.error_reason : '' }}</strong>
+            <p>{{ r.error_message }}</p>
+          </div>
+        </div>
+      }
+      @if (r.result; as res) {
+        <div class="result">
+          <p class="result-summary" [class.is-out-of-scope]="isOutOfScope(res)">{{ res.summary }}</p>
+          <div class="result-stats">
+            <div class="metric is-accent">
+              <span class="metric-label">Coste total</span>
+              <span class="metric-value">{{ formatEur(res.total_cost_eur) }}</span>
+            </div>
+            <div class="metric">
+              <span class="metric-label">Duración</span>
+              <span class="metric-value">{{ res.total_duration_weeks }} sem</span>
+            </div>
+            <div class="metric">
+              <span class="metric-label">Confianza</span>
+              <span class="metric-value" [class.is-low]="res.confidence_pct < lowConfidenceThreshold"
+                >{{ res.confidence_pct }}%</span
+              >
+            </div>
+          </div>
+          <table class="phases-table">
+            <thead>
+              <tr><th>Fase</th><th class="num">Sem.</th><th class="num">Coste</th><th>Resumen</th></tr>
+            </thead>
+            <tbody>
+              @for (phase of res.phases; track $index) {
+                <tr>
+                  <td class="phase-name">{{ phase.name }}</td>
+                  <td class="num">{{ phase.duration_weeks }}</td>
+                  <td class="num">{{ formatEur(phase.cost_eur) }}</td>
+                  <td class="phase-summary">{{ phase.summary }}</td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      } @else {
+        <p class="placeholder">Esta estimación no tiene resultado.</p>
+      }
+    }
+  } @else {
+    <div class="error-box standalone">
+      <mat-icon>error</mat-icon>
+      <span>{{ errorMessage() || 'No se encontró la estimación.' }}</span>
+    </div>
     }
   }
 </main>

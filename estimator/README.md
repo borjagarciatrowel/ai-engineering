@@ -64,9 +64,14 @@ cd estimator-frontend
 docker compose up --build
 ```
 
-The Angular container proxies `/api` to `host.docker.internal:8000`, so the
-backend stack can be started, stopped, or replaced (e.g. local `uvicorn`
-instead of Docker) without touching the frontend stack.
+The Angular container proxies `/api` **and `/sessions`** to
+`host.docker.internal:8000`, so the backend stack can be started, stopped, or
+replaced (e.g. local `uvicorn` instead of Docker) without touching the frontend
+stack.
+
+> After changing `pyproject.toml` (Session 5 added `python-multipart`, `pypdf`,
+> `python-docx`), rebuild the backend image: `docker compose up -d --build`. The
+> new deps live in the image, not in the bind-mounted `./app`.
 
 ## Running tests
 
@@ -102,8 +107,54 @@ Prompts live as files under `app/prompts/estimation/v1/`:
 
 ### Endpoints
 
-- `POST /api/v1/estimate?prompt_version=v1` → `EstimationResponse` (text + metadata)
-- `POST /api/v1/estimate/stream?prompt_version=v1` → NDJSON stream of `{"t": "<token>"}` and a final `{"done": true, …}` chunk
+- `POST /api/v1/estimate` → `EstimationResponse` (stateless, structured output)
+- `GET|POST|PATCH|DELETE /api/v1/estimations…` → persisted estimation CRUD + `/{id}/run`
+- `POST /sessions` → create a session + its estimation row → `{"session_id", "estimation_id"}`
+- `GET  /sessions/{id}` → debug view (project_metadata + history length)
+- `GET  /sessions/{id}/conversation` → full turn-by-turn history (used by the detail view)
+- `POST /sessions/{id}/estimate` → one conversational turn (`multipart/form-data`)
+
+### Conversational memory & attachments (Session 5)
+
+The estimator keeps **conversational memory** per session and accepts **attachments**.
+See [`docs/cambios-sesion-05.md`](docs/cambios-sesion-05.md) for the full change log and
+[`docs/codigo-explicado.md`](docs/codigo-explicado.md) §17 for the annotated walkthrough.
+
+- **History vs memory.** `ConversationHistory` (`app/sessions/models.py`) is the rolling
+  `messages` array with a **sliding window** (`MAX_CONVERSATION_TURNS=6` pairs; oldest
+  dropped). `ProjectMetadata` is the durable set of facts (name, team size, technologies,
+  agreed scope) kept **apart** from the history and injected into the v2 system prompt every
+  turn — so the model remembers context evicted by the window.
+
+- **Attachments — Camino B (local extraction).** We chose **Camino B**: PDF/DOCX text is
+  extracted *inside* the service (`pypdf` / `python-docx`, `app/attachments/extractor.py`)
+  and concatenated into the transcript with explicit fences
+  (`--- attachment: file.pdf ---`). Rationale: keeps the LLM wrapper provider-agnostic
+  (text in, text out) and sets up chunking/RAG for module 3. The alternative (Camino A,
+  uploading the binary to a multimodal Files API) couples us to one provider.
+
+- **`project_metadata` extraction — LLM extractor.** After each turn a **second, cheap LLM
+  call** (`METADATA_EXTRACTOR_MODEL=gpt-4o-mini`, `app/sessions/metadata_extractor.py`)
+  returns a structured `ProjectMetadata`, merged with the previous one (scalars overwrite,
+  technology list unions). We picked the LLM extractor over a regex heuristic because it is
+  far more robust (synonyms, capitalisation, scope summaries); the extra small call per turn
+  is acceptable, and a failed extraction falls back to the previous metadata.
+
+- **Persistence — DB instead of an in-memory dict (deliberate deviation).** The brief says a
+  process-memory dict is enough. We instead persist sessions to **Postgres** (`chat_sessions`
+  table; `DbSessionStore` in `app/sessions/store.py`) so memory survives restarts and is
+  shared across workers. `history` and `project_metadata` are stored as JSON columns.
+
+- **Conversational estimations show in the grid.** Each turn also upserts a row in the
+  `estimations` table (one row per session, keyed by `estimations.session_id`, refreshed every
+  turn), so an estimation made in the conversational UI appears in the estimations landing
+  grid alongside the stateless ones.
+
+- **Unified UI: an estimation IS a conversation.** The Angular client has a single flow —
+  "Nueva estimación" starts a conversation, and the estimation detail (`/estimations/{id}`)
+  *is* the conversational interface (turn thread + composer to add turns + live
+  project_metadata panel). The separate chat page and the single-shot edit/run form were
+  removed; legacy stateless estimations (no `session_id`) render read-only.
 
 ### Template tests
 
