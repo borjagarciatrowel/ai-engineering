@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "estimator-frontend",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["-c", "cd estimator-frontend && npm start"],
+      "port": 4200
+    }
+  ]
+}
