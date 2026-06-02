@@ -48,16 +48,23 @@ def create_all() -> None:
     _ensure_columns(engine)
 
 
-# Columns added after the table first shipped. ``create_all`` does NOT alter an
+# Columns added after a table first shipped. ``create_all`` does NOT alter an
 # existing table, so we add them idempotently. Postgres-only (ADD COLUMN IF NOT
-# EXISTS); on a fresh sqlite test DB create_all already includes them.
-_ADDED_COLUMNS: dict[str, str] = {
-    "input_tokens": "INTEGER",
-    "output_tokens": "INTEGER",
-    "total_tokens": "INTEGER",
-    "cost_usd": "DOUBLE PRECISION",
-    "finish_reason": "VARCHAR(40)",
-    "session_id": "VARCHAR(36)",
+# EXISTS); on a fresh sqlite test DB create_all already includes them. Keyed by
+# table name so newer tables (chat_sessions) can evolve the same way.
+_ADDED_COLUMNS: dict[str, dict[str, str]] = {
+    "estimations": {
+        "input_tokens": "INTEGER",
+        "output_tokens": "INTEGER",
+        "total_tokens": "INTEGER",
+        "cost_usd": "DOUBLE PRECISION",
+        "finish_reason": "VARCHAR(40)",
+        "session_id": "VARCHAR(36)",
+    },
+    "chat_sessions": {
+        "last_resolved_tier": "VARCHAR(20)",
+        "last_tier_rule": "VARCHAR(40)",
+    },
 }
 
 
@@ -67,10 +74,11 @@ def _ensure_columns(engine: Engine) -> None:
     from sqlalchemy import text
 
     with engine.begin() as conn:
-        for name, ddl in _ADDED_COLUMNS.items():
-            conn.execute(
-                text(f"ALTER TABLE estimations ADD COLUMN IF NOT EXISTS {name} {ddl}")
-            )
+        for table, columns in _ADDED_COLUMNS.items():
+            for name, ddl in columns.items():
+                conn.execute(
+                    text(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {name} {ddl}")
+                )
 
 
 def get_db() -> Generator[Session, None, None]:

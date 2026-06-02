@@ -92,7 +92,14 @@ class FakeLLMWrapper:
     """In-process double of ``LLMWrapper`` for conversational tests.
 
     Captures every ``complete_structured_chat`` call. Returns scripted
-    EstimationResult / ProjectMetadata pairs in order, one pair per turn.
+    EstimationResult / ProjectMetadata pairs for the estimation+extractor
+    sequence (one pair per turn). For any other ``response_model`` (the
+    summary envelope from the compressor, critic feedback from the Boss, the
+    anchor classifier), it returns a canned instance produced by a registered
+    factory or a sensible default — and does NOT advance the turn counter, so
+    those extra calls don't disturb the est/metadata pairing.
+
+    Tests register factories with ``register_response_for(schema, factory)``.
     """
 
     primary_model = "gpt-4o-mini"
@@ -101,6 +108,7 @@ class FakeLLMWrapper:
         self.chat_calls: list[dict] = []
         self.scripted: list[tuple[EstimationResult, ProjectMetadata]] = []
         self._turn = 0
+        self._extra_factories: dict[type, callable] = {}
 
     def add_turn(
         self,
@@ -112,22 +120,30 @@ class FakeLLMWrapper:
             (result or make_canned_result(), metadata or ProjectMetadata())
         )
 
-    def complete_structured_chat(self, *, messages, response_model, **kwargs):
-        self.chat_calls.append(
-            {
-                "messages": messages,
-                "response_model": response_model.__name__,
-                "kwargs": kwargs,
-            }
-        )
-        idx = self._turn // 2
-        if idx >= len(self.scripted):
-            # Pad with neutral results so tests that exercise extra turns
-            # (sliding window) don't have to script every single one.
-            self.scripted.append((make_canned_result(), ProjectMetadata()))
-        result, metadata = self.scripted[idx]
-        self._turn += 1
-        meta = {
+    def register_response_for(self, schema: type, factory) -> None:
+        """Register a zero-arg factory that produces an instance of ``schema``.
+
+        Useful when a pipeline triggers a third Pydantic call (summarizer,
+        critic) that the default estimation/metadata pair-script doesn't cover.
+        """
+        self._extra_factories[schema] = factory
+
+    def _default_for(self, schema: type):
+        """Best-effort canned instance when no factory is registered."""
+        # Local imports keep this lazy — the optional schemas only exist once
+        # their modules ship.
+        from app.sessions.compression.anchors import _AnchorClassification
+        from app.sessions.compression.summarizer import _SummaryEnvelope
+
+        if schema is _SummaryEnvelope:
+            return _SummaryEnvelope(summary="(canned summary for tests)")
+        if schema is _AnchorClassification:
+            return _AnchorClassification(is_anchor=False, reason="default")
+        # Final fallback: try to construct with no args.
+        return schema()
+
+    def _meta(self) -> dict:
+        return {
             "model": "gpt-4o-mini",
             "provider": "openai",
             "latency_ms": 1,
@@ -137,9 +153,40 @@ class FakeLLMWrapper:
             "cost_usd": 0.0,
             "finish_reason": "stop",
         }
+
+    def complete_structured_chat(self, *, messages, response_model, **kwargs):
+        self.chat_calls.append(
+            {
+                "messages": messages,
+                "response_model": response_model.__name__,
+                "kwargs": kwargs,
+            }
+        )
+        meta = self._meta()
+
         if response_model is EstimationResult:
+            idx = self._turn // 2
+            if idx >= len(self.scripted):
+                # Pad with neutral results so tests that exercise extra turns
+                # (sliding window) don't have to script every single one.
+                self.scripted.append((make_canned_result(), ProjectMetadata()))
+            result, _metadata = self.scripted[idx]
+            self._turn += 1
             return result, meta
-        return metadata, meta
+
+        if response_model is ProjectMetadata:
+            idx = self._turn // 2
+            if idx >= len(self.scripted):
+                self.scripted.append((make_canned_result(), ProjectMetadata()))
+            _result, metadata = self.scripted[idx]
+            self._turn += 1
+            return metadata, meta
+
+        # Third-party schemas (summary envelope, critic feedback, anchor …).
+        factory = self._extra_factories.get(response_model)
+        if factory is not None:
+            return factory(), meta
+        return self._default_for(response_model), meta
 
 
 @pytest.fixture

@@ -86,6 +86,28 @@
                   </mat-form-field>
                 </div>
 
+                <div class="acb-controls">
+                  <mat-checkbox formControlName="use_acb" color="primary" class="acb-toggle">
+                    <span class="acb-toggle-text">
+                      <mat-icon class="acb-icon">verified_user</mat-icon>
+                      Revisión Actor-Critic-Boss
+                    </span>
+                  </mat-checkbox>
+                  @if (form.controls.use_acb.value) {
+                    <mat-form-field appearance="outline" class="acb-tier-field">
+                      <mat-label>Audiencia (tier)</mat-label>
+                      <mat-select formControlName="acb_tier">
+                        @for (option of acbTiers; track option.value) {
+                          <mat-option [value]="option.value">{{ option.label }}</mat-option>
+                        }
+                      </mat-select>
+                    </mat-form-field>
+                    <p class="acb-hint">
+                      Un crítico independiente audita la estimación; el Boss itera o sintetiza hasta converger.
+                    </p>
+                  }
+                </div>
+
                 <div class="attachments">
                   <input
                     #fileInput
@@ -183,6 +205,54 @@
 
         <!-- Right: conversation thread -->
         <section class="thread-col">
+          @if (acbTrace(); as trace) {
+            <mat-card appearance="outlined" class="acb-card">
+              <mat-card-header>
+                <mat-card-title>
+                  <mat-icon class="acb-card-icon">rule</mat-icon>
+                  Auditoría Actor-Critic-Boss
+                </mat-card-title>
+                <mat-card-subtitle class="acb-card-sub">
+                  <span>Decisión final:</span>
+                  <span class="boss-badge" [ngClass]="bossDecisionMeta[trace.final_decision].cssClass">
+                    {{ bossDecisionMeta[trace.final_decision].label }}
+                  </span>
+                  <span class="acb-iter-count">{{ trace.iterations_run }} iteración(es)</span>
+                </mat-card-subtitle>
+              </mat-card-header>
+              <mat-card-content>
+                <mat-accordion class="acb-iterations" multi>
+                  @for (it of trace.iterations; track it.iteration) {
+                    <mat-expansion-panel class="acb-iter-panel">
+                      <mat-expansion-panel-header>
+                        <mat-panel-title>Iteración {{ it.iteration + 1 }}</mat-panel-title>
+                        <mat-panel-description class="acb-iter-desc">
+                          <span class="iter-verdict">{{ it.critic_verdict }}</span>
+                          <span
+                            class="iter-decision"
+                            [ngClass]="bossDecisionMeta[it.decision_after].cssClass"
+                          >
+                            {{ bossDecisionMeta[it.decision_after].label }}
+                          </span>
+                          <span class="iter-conf">{{ it.critic_confidence }}%</span>
+                        </mat-panel-description>
+                      </mat-expansion-panel-header>
+                      @if (it.issue_summary.length > 0) {
+                        <ul class="iter-issues">
+                          @for (issue of it.issue_summary; track $index) {
+                            <li>{{ issue }}</li>
+                          }
+                        </ul>
+                      } @else {
+                        <p class="iter-clean">Sin incidencias señaladas por el crítico.</p>
+                      }
+                    </mat-expansion-panel>
+                  }
+                </mat-accordion>
+              </mat-card-content>
+            </mat-card>
+          }
+
           @if (turns().length === 0) {
             <div class="empty">
               <mat-icon>forum</mat-icon>

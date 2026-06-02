@@ -10,7 +10,9 @@ import {
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
+import { MatCheckboxModule } from '@angular/material/checkbox';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
+import { MatExpansionModule } from '@angular/material/expansion';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
@@ -25,6 +27,10 @@ import {
   ConfirmDeleteData,
 } from '../../components/confirm-delete-dialog.component';
 import {
+  ACB_TIERS,
+  AcbTier,
+  BOSS_DECISION_META,
+  BossTrace,
   DETAIL_LEVELS,
   DetailLevel,
   EstimationRecord,
@@ -59,7 +65,9 @@ interface DetailConversationTurn {
     RouterLink,
     MatButtonModule,
     MatCardModule,
+    MatCheckboxModule,
     MatDialogModule,
+    MatExpansionModule,
     MatFormFieldModule,
     MatIconModule,
     MatInputModule,
@@ -81,6 +89,8 @@ export class EstimationDetailComponent implements OnInit {
   readonly projectTypes = PROJECT_TYPES;
   readonly detailLevels = DETAIL_LEVELS;
   readonly outputFormats = OUTPUT_FORMATS;
+  readonly acbTiers = ACB_TIERS;
+  readonly bossDecisionMeta = BOSS_DECISION_META;
   readonly transcriptMax = TRANSCRIPT_MAX;
   readonly transcriptMin = TRANSCRIPT_MIN;
   readonly lowConfidenceThreshold = LOW_CONFIDENCE_THRESHOLD;
@@ -93,6 +103,9 @@ export class EstimationDetailComponent implements OnInit {
   readonly metadata = signal<ProjectMetadata | null>(null);
   readonly turns = signal<DetailConversationTurn[]>([]);
   readonly files = signal<File[]>([]);
+  /** Audit trail of the most recent ACB turn. The trace is not persisted in the
+   * session history, so it only reflects the latest live /estimate-acb call. */
+  readonly acbTrace = signal<BossTrace | null>(null);
 
   readonly status = computed(() => this.record()?.status ?? null);
   readonly isConversational = computed(() => !!this.record()?.session_id);
@@ -112,6 +125,9 @@ export class EstimationDetailComponent implements OnInit {
     project_type: ['web_saas' as ProjectType, Validators.required],
     detail_level: ['medium' as DetailLevel, Validators.required],
     output_format: ['phases_table' as OutputFormat, Validators.required],
+    // Actor-Critic-Boss: opt-in independent review + audience tier.
+    use_acb: [false],
+    acb_tier: ['default' as AcbTier],
   });
 
   private id = '';
@@ -185,7 +201,16 @@ export class EstimationDetailComponent implements OnInit {
     this.errorMessage.set(null);
     const fields = this.form.getRawValue();
     try {
-      await this.api.estimateInSession(this.sessionId, fields, this.files());
+      const response = fields.use_acb
+        ? await this.api.estimateInSessionWithAcb(
+            this.sessionId,
+            fields,
+            this.files(),
+            fields.acb_tier,
+          )
+        : await this.api.estimateInSession(this.sessionId, fields, this.files());
+      // Surface the audit trail for the ACB path; clear it for a plain turn.
+      this.acbTrace.set(response.acb ?? null);
       await this.loadConversation(this.sessionId);
       // The mirror updates title/status; refresh the header.
       this.record.set(await this.api.get(this.id));

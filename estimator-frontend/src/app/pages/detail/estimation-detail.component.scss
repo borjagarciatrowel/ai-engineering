@@ -493,3 +493,128 @@
   font-size: 0.85rem;
   color: #fda4a4;
 }
+
+/* ----- Actor-Critic-Boss composer controls ----- */
+.acb-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.6rem 0.75rem;
+  border-radius: var(--radius-md);
+  background: var(--accent-soft);
+  border: 1px solid rgba(139, 148, 255, 0.22);
+}
+.acb-toggle-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.86rem;
+}
+.acb-icon {
+  font-size: 1.05rem;
+  width: 1.05rem;
+  height: 1.05rem;
+  color: var(--accent);
+}
+.acb-tier-field {
+  width: 100%;
+}
+.acb-hint {
+  margin: 0;
+  font-size: 0.76rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+/* ----- Actor-Critic-Boss audit panel ----- */
+.acb-card .mat-mdc-card-title {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 1rem;
+}
+.acb-card-icon {
+  font-size: 1.1rem;
+  width: 1.1rem;
+  height: 1.1rem;
+  color: var(--accent);
+}
+.acb-card-sub {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.35rem;
+}
+.acb-iter-count {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+.boss-badge,
+.iter-decision {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.12rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+.boss-badge.is-accept,
+.iter-decision.is-accept {
+  color: #86efac;
+  background: rgba(34, 197, 94, 0.14);
+  border: 1px solid rgba(34, 197, 94, 0.35);
+}
+.boss-badge.is-iterate,
+.iter-decision.is-iterate {
+  color: #fde68a;
+  background: rgba(251, 191, 36, 0.12);
+  border: 1px solid rgba(251, 191, 36, 0.3);
+}
+.boss-badge.is-synthesize,
+.iter-decision.is-synthesize {
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+  border: 1px solid rgba(139, 148, 255, 0.35);
+}
+.acb-iterations {
+  display: block;
+}
+.acb-iter-desc {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  justify-content: flex-end;
+  flex: 1 1 auto;
+}
+.iter-verdict {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  font-family: 'JetBrains Mono', monospace;
+}
+.iter-conf {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  font-family: 'JetBrains Mono', monospace;
+}
+.iter-issues {
+  margin: 0;
+  padding: 0 0 0 1.15rem;
+  list-style: disc;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+.iter-issues li {
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: #fda4a4;
+}
+.iter-clean {
+  margin: 0;
+  font-size: 0.82rem;
+  color: #86efac;
+}

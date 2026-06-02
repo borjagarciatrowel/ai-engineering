@@ -71,6 +71,30 @@ export interface EstimationResponse {
   prompt_version: string;
   cached: boolean;
   usage: LlmUsage | null;
+  /** Present only on the Actor-Critic-Boss endpoint (/estimate-acb). */
+  acb?: BossTrace | null;
+}
+
+/** Audience tier for the v3 prompt + Critic (Session 5 live). */
+export type AcbTier = 'executive' | 'pm' | 'developer' | 'default';
+
+/** The Boss's decision after a single actor+critic round. */
+export type BossDecision = 'accept' | 'iterate' | 'synthesize';
+
+/** Audit record for one actor+critic iteration of the Boss loop. */
+export interface ACBIteration {
+  iteration: number;
+  decision_after: BossDecision;
+  critic_verdict: string;
+  critic_confidence: number;
+  issue_summary: string[];
+}
+
+/** Full Actor-Critic-Boss audit trail attached to an ACB response. */
+export interface BossTrace {
+  iterations: ACBIteration[];
+  final_decision: BossDecision;
+  iterations_run: number;
 }
 
 /** Session 5 — the durable facts kept across turns (lives apart from history). */
@@ -158,6 +182,27 @@ export const OUTPUT_FORMATS: OutputFormatOption[] = [
   { value: 'line_items', label: 'Lista plana' },
   { value: 'narrative', label: 'Narrativa' },
 ];
+
+export interface AcbTierOption {
+  value: AcbTier;
+  label: string;
+}
+
+/** Audience tiers offered when the Actor-Critic-Boss mode is enabled.
+ * `default` lets the backend's tier_resolver pick from the transcript. */
+export const ACB_TIERS: AcbTierOption[] = [
+  { value: 'default', label: 'Automático (según contexto)' },
+  { value: 'executive', label: 'Ejecutivo (visión negocio)' },
+  { value: 'pm', label: 'Project manager (hitos)' },
+  { value: 'developer', label: 'Desarrollador (técnico)' },
+];
+
+/** UI metadata per Boss decision (label + css modifier for colour). */
+export const BOSS_DECISION_META: Record<BossDecision, { label: string; cssClass: string }> = {
+  accept: { label: 'Aceptada', cssClass: 'is-accept' },
+  iterate: { label: 'Iterar', cssClass: 'is-iterate' },
+  synthesize: { label: 'Síntesis', cssClass: 'is-synthesize' },
+};
 
 /** UI metadata per lifecycle status (label + css modifier for colour). */
 export const STATUS_META: Record<EstimationStatus, { label: string; cssClass: string }> = {

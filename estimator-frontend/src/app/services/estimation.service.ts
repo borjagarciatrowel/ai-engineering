@@ -1,6 +1,7 @@
 import { Injectable } from '@angular/core';
 
 import {
+  AcbTier,
   Conversation,
   DetailLevel,
   EstimationCreate,
@@ -104,6 +105,29 @@ export class EstimationService {
     }
     return this.json<EstimationResponse>(
       await fetch(`${this.sessionsUrl}/${id}/estimate`, { method: 'POST', body: fd }),
+    );
+  }
+
+  /** Run one Actor-Critic-Boss turn. Same multipart contract as
+   * {@link estimateInSession} plus an optional audience `tier`; the response
+   * carries an `acb` audit trail. `tier='default'` lets the backend resolve it. */
+  async estimateInSessionWithAcb(
+    id: string,
+    fields: ConversationFields,
+    files: File[],
+    tier: AcbTier = 'default',
+  ): Promise<EstimationResponse> {
+    const fd = new FormData();
+    fd.append('transcript', fields.transcript);
+    fd.append('project_type', fields.project_type);
+    fd.append('detail_level', fields.detail_level);
+    fd.append('output_format', fields.output_format);
+    fd.append('tier', tier);
+    for (const file of files) {
+      fd.append('attachments', file, file.name);
+    }
+    return this.json<EstimationResponse>(
+      await fetch(`${this.sessionsUrl}/${id}/estimate-acb`, { method: 'POST', body: fd }),
     );
   }
 

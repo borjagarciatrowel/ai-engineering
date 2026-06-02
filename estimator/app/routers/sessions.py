@@ -1,20 +1,25 @@
 """Conversational endpoints for Session 5.
 
-Three endpoints:
+Endpoints:
 
-- ``POST /sessions``                       — create a new session, return its UUID.
-- ``POST /sessions/{session_id}/estimate`` — multi-turn estimation. Accepts
-  ``multipart/form-data`` with the transcript plus optional file attachments
-  (PDF or DOCX). Attachment text is extracted locally (Camino B) and
-  concatenated into the transcript before the LLM is invoked.
-- ``GET  /sessions/{session_id}``          — debug view of the session
-  (metadata + history length). Used by the client's metadata panel.
+- ``POST /sessions``                          — create a session + its mirrored
+  estimation row, return both ids.
+- ``POST /sessions/{session_id}/estimate``     — multi-turn estimation. Accepts
+  ``multipart/form-data`` with the transcript, the typed knobs, an optional
+  ``tier`` override and optional file attachments (PDF or DOCX). Attachment text
+  is extracted locally (Camino B) and concatenated into the transcript.
+- ``POST /sessions/{session_id}/estimate-acb`` — Actor-Critic-Boss variant of
+  ``/estimate``. Same multipart contract; the response carries an ``acb`` field
+  with the iteration trail (verdict, confidence, issues per round).
+- ``GET  /sessions/{session_id}``              — debug view (metadata + history
+  length + resolved tier). Used by the client's memory panel.
+- ``GET  /sessions/{session_id}/conversation`` — full turn-by-turn history.
 
 Persistence note: the session store is Postgres-backed (``DbSessionStore``).
 The service mutates the loaded ``Session`` in place (appends the turn, refreshes
-metadata); the router then calls ``store.save(session)`` to flush those changes
-to the ``chat_sessions`` row. This is the project deviation from the brief's
-in-memory dict.
+metadata, caches the resolved tier); the router then calls ``store.save(session)``
+to flush those changes to the ``chat_sessions`` row. This is the project
+deviation from the brief's in-memory dict.
 
 Error mapping mirrors the v1 router:
 - ``InputGuardrailViolation`` → 400 with ``{reason, message}``.
@@ -46,6 +51,7 @@ from app.db_models import Estimation
 from app.dependencies import get_estimation_service, get_session_store
 from app.guardrails.input import InputGuardrailViolation
 from app.schemas.estimation import (
+    ACBResponse,
     DetailLevel,
     EstimationResponse,
     OutputFormat,
@@ -54,6 +60,7 @@ from app.schemas.estimation import (
 from app.services.estimation import EstimationService
 from app.sessions.models import ProjectMetadata, Session
 from app.sessions.store import DbSessionStore, SessionNotFoundError
+from app.sessions.tier_resolver import Tier
 
 log = structlog.get_logger()
 
@@ -83,7 +90,11 @@ def _mirror_turn_to_grid(
     """Upsert one ``Estimation`` row per conversational session so the turn shows
     in the estimations grid. One row per session, refreshed every turn with the
     latest result + telemetry. Best-effort: a mirror failure must not break the
-    conversational response (the source of truth is ``chat_sessions``)."""
+    conversational response (the source of truth is ``chat_sessions``).
+
+    Works for both ``EstimationResponse`` and its ``ACBResponse`` subclass — the
+    ACB trace is not mirrored to the grid (it lives in the conversational
+    response / detail view), only the final result + telemetry."""
     rec = (
         db.execute(select(Estimation).where(Estimation.session_id == session.session_id))
         .scalars()
@@ -126,6 +137,10 @@ class SessionInfoResponse(BaseModel):
     message_count: int
     max_turns: int
     metadata: ProjectMetadata
+    anchors_count: int = 0
+    summary_chars: int = 0
+    last_resolved_tier: str | None = None
+    last_tier_rule: str | None = None
 
 
 class ConversationMessage(BaseModel):
@@ -184,6 +199,10 @@ def get_session(
         message_count=len(session.history.messages),
         max_turns=session.history.max_turns,
         metadata=session.metadata,
+        anchors_count=len(session.history.anchors),
+        summary_chars=len(session.history.summary or ""),
+        last_resolved_tier=session.last_resolved_tier,
+        last_tier_rule=session.last_tier_rule,
     )
 
 
@@ -209,18 +228,17 @@ def get_conversation(
     )
 
 
-@router.post("/{session_id}/estimate", response_model=EstimationResponse)
-async def estimate_in_session(
+async def _resolve_session_and_enrich(
     session_id: str,
-    transcript: str = Form(..., min_length=20, max_length=80_000),
-    project_type: ProjectType = Form(...),
-    detail_level: DetailLevel = Form(...),
-    output_format: OutputFormat = Form(...),
-    attachments: list[UploadFile] = File(default_factory=list),
-    store: DbSessionStore = Depends(get_session_store),
-    service: EstimationService = Depends(get_estimation_service),
-    db: SaSession = Depends(get_db),
-) -> EstimationResponse:
+    transcript: str,
+    attachments: list[UploadFile],
+    store: DbSessionStore,
+) -> tuple[Session, str]:
+    """Shared prelude for both /estimate and /estimate-acb.
+
+    Returns ``(session, enriched_transcript)``. Raises ``HTTPException`` for
+    session/attachment problems; the caller wraps the LLM call separately.
+    """
     try:
         session = store.get_or_404(session_id)
     except SessionNotFoundError as exc:
@@ -263,6 +281,44 @@ async def estimate_in_session(
         enriched_transcript_chars=len(enriched),
         attachment_count=len(extracted),
     )
+    return session, enriched
+
+
+def _map_pipeline_errors(exc: Exception) -> HTTPException:
+    """Same mapping for both endpoints: input guardrail → 400, else → 502."""
+    if isinstance(exc, InputGuardrailViolation):
+        log.info(
+            "session_estimate_blocked_by_input_guardrail",
+            reason=exc.reason,
+            message=exc.message,
+        )
+        return HTTPException(
+            status_code=400, detail={"reason": exc.reason, "message": exc.message}
+        )
+    log.error(
+        "session_estimate_endpoint_error",
+        error=str(exc)[:400],
+        error_type=type(exc).__name__,
+    )
+    return HTTPException(status_code=502, detail="Upstream LLM call failed")
+
+
+@router.post("/{session_id}/estimate", response_model=EstimationResponse)
+async def estimate_in_session(
+    session_id: str,
+    transcript: str = Form(..., min_length=20, max_length=80_000),
+    project_type: ProjectType = Form(...),
+    detail_level: DetailLevel = Form(...),
+    output_format: OutputFormat = Form(...),
+    tier: Tier | None = Form(default=None),
+    attachments: list[UploadFile] = File(default_factory=list),
+    store: DbSessionStore = Depends(get_session_store),
+    service: EstimationService = Depends(get_estimation_service),
+    db: SaSession = Depends(get_db),
+) -> EstimationResponse:
+    session, enriched = await _resolve_session_and_enrich(
+        session_id, transcript, attachments, store
+    )
 
     try:
         response = service.estimate_conversational(
@@ -271,30 +327,82 @@ async def estimate_in_session(
             project_type=project_type,
             detail_level=detail_level,
             output_format=output_format,
+            tier=tier,
         )
-    except InputGuardrailViolation as exc:
-        log.info(
-            "session_estimate_blocked_by_input_guardrail",
-            reason=exc.reason,
-            message=exc.message,
-        )
-        raise HTTPException(
-            status_code=400, detail={"reason": exc.reason, "message": exc.message}
-        ) from exc
     except HTTPException:
         raise
     except Exception as exc:  # noqa: BLE001
-        log.error(
-            "session_estimate_endpoint_error",
-            error=str(exc)[:400],
-            error_type=type(exc).__name__,
-        )
-        raise HTTPException(status_code=502, detail="Upstream LLM call failed") from exc
+        raise _map_pipeline_errors(exc) from exc
 
-    # Flush the mutated history + metadata back to Postgres.
+    # Flush the mutated history + metadata + tier back to Postgres.
     store.save(session)
 
     # Mirror the turn into the estimations grid (one row per session).
+    try:
+        _mirror_turn_to_grid(
+            db,
+            session=session,
+            transcript=transcript,
+            project_type=project_type,
+            detail_level=detail_level,
+            output_format=output_format,
+            response=response,
+            model=service.llm_wrapper.primary_model,
+        )
+    except Exception as exc:  # noqa: BLE001 — grid mirror is best-effort
+        db.rollback()
+        log.warning(
+            "session_estimate_grid_mirror_failed",
+            session_id=session_id,
+            error_type=type(exc).__name__,
+            error=str(exc)[:200],
+        )
+
+    return response
+
+
+@router.post("/{session_id}/estimate-acb", response_model=ACBResponse)
+async def estimate_in_session_acb(
+    session_id: str,
+    transcript: str = Form(..., min_length=20, max_length=80_000),
+    project_type: ProjectType = Form(...),
+    detail_level: DetailLevel = Form(...),
+    output_format: OutputFormat = Form(...),
+    tier: Tier | None = Form(default=None),
+    attachments: list[UploadFile] = File(default_factory=list),
+    store: DbSessionStore = Depends(get_session_store),
+    service: EstimationService = Depends(get_estimation_service),
+    db: SaSession = Depends(get_db),
+) -> ACBResponse:
+    """Actor-Critic-Boss variant of /estimate.
+
+    Same multipart contract; the response carries an ``acb`` field with the
+    iteration trail (verdict, confidence, issues per round) so the client can
+    show the audit trail in the conversational detail view. Persistence + grid
+    mirror behave exactly like /estimate — only the final Boss-approved result
+    lands in the session and the grid."""
+    session, enriched = await _resolve_session_and_enrich(
+        session_id, transcript, attachments, store
+    )
+
+    try:
+        response = service.estimate_with_acb(
+            session=session,
+            transcript=enriched,
+            project_type=project_type,
+            detail_level=detail_level,
+            output_format=output_format,
+            tier=tier,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise _map_pipeline_errors(exc) from exc
+
+    # Flush the mutated history + metadata + tier back to Postgres.
+    store.save(session)
+
+    # Mirror the final result into the estimations grid (one row per session).
     try:
         _mirror_turn_to_grid(
             db,

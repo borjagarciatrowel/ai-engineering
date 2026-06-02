@@ -85,6 +85,12 @@ class ChatSession(Base):
     history: Mapped[dict] = mapped_column(JSON, default=dict)
     project_metadata: Mapped[dict] = mapped_column(JSON, default=dict)
 
+    # Cached audience-tier resolution (Session 5 live). Recomputed each turn by
+    # ``tier_resolver.resolve_tier``; persisted so GET /sessions/{id} can show
+    # the tier side panel without re-running the resolver after a cold load.
+    last_resolved_tier: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    last_tier_rule: Mapped[str | None] = mapped_column(String(40), nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

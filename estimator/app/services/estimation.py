@@ -33,7 +33,9 @@ from app.guardrails.input import check_input
 from app.guardrails.output import enforce_scope_response
 from app.prompts import render_estimation_prompt
 from app.prompts.loader import render_conversational_prompt
+from app.schemas.critic import CriticFeedback
 from app.schemas.estimation import (
+    ACBResponse,
     DetailLevel,
     EstimationRequest,
     EstimationResponse,
@@ -42,10 +44,14 @@ from app.schemas.estimation import (
     OutputFormat,
     ProjectType,
 )
+from app.services.boss import Boss
 from app.services.cache import EstimationCache
+from app.services.critic import Critic
 from app.services.llm_wrapper import LLMWrapper
+from app.sessions.compression import apply_compression
 from app.sessions.metadata_extractor import update_metadata
 from app.sessions.models import Session
+from app.sessions.tier_resolver import Tier, resolve_tier
 
 log = structlog.get_logger()
 
@@ -78,8 +84,12 @@ class EstimationService:
         semantic_cache: EstimationSemanticCache | None = None,
         openai_client: Any | None = None,
         prompt_version: str = "v1",
-        conversational_prompt_version: str = "v2",
+        conversational_prompt_version: str = "v3",
         metadata_extractor_model: str = "gpt-4o-mini",
+        compression_model: str = "gpt-4o-mini",
+        anchor_detection_mode: str = "heuristic",
+        critic_model: str = "gpt-4o-mini",
+        boss_max_iterations: int = 2,
     ) -> None:
         self.llm_wrapper = llm_wrapper
         self.exact_cache = exact_cache
@@ -88,6 +98,10 @@ class EstimationService:
         self.prompt_version = prompt_version
         self.conversational_prompt_version = conversational_prompt_version
         self.metadata_extractor_model = metadata_extractor_model
+        self.compression_model = compression_model
+        self.anchor_detection_mode = anchor_detection_mode
+        self.critic_model = critic_model
+        self.boss_max_iterations = boss_max_iterations
 
     def invalidate_caches(self, request: EstimationRequest) -> None:
         """Drop both cache layers for a request so the next estimate regenerates.
@@ -184,6 +198,7 @@ class EstimationService:
         project_type: ProjectType,
         detail_level: DetailLevel,
         output_format: OutputFormat,
+        tier: Tier | None = None,
     ) -> EstimationResponse:
         """Multi-turn estimation pipeline (Session 5).
 
@@ -191,19 +206,30 @@ class EstimationService:
         - No exact/semantic caching: every turn depends on the conversation
           history + metadata, so two identical transcripts in different sessions
           are NOT the same call. ``cached`` is always ``False``.
-        - The system prompt is the v2 template, which embeds the current
-          ``ProjectMetadata`` block. The LLM also receives the prior
-          user/assistant turns.
-        - After validation, the session's history is appended and a second LLM
-          call refreshes ``ProjectMetadata``. The caller (router) is responsible
-          for persisting the mutated ``session`` via the store.
+        - The system prompt is the v3 template, which embeds the current
+          ``ProjectMetadata`` block plus an ``<audience>`` block driven by the
+          resolved tier. The LLM also receives the prior user/assistant turns.
+        - After validation, the session's history is appended, compression runs
+          (anchor promotion + cumulative summary + sliding window), and a second
+          LLM call refreshes ``ProjectMetadata``. The caller (router) is
+          responsible for persisting the mutated ``session`` via the store.
         """
         # 1. Input guardrail on the enriched transcript (the caller has already
         #    concatenated any extracted attachment text into it).
         check_input(transcript, openai_client=self.openai_client)
 
-        # 2. Render the conversational system + user prompts (v2 includes the
-        #    <project_metadata> block).
+        # 2. Resolve the audience tier. Override (when the caller passed one)
+        #    wins; otherwise the rule chain decides from transcript + metadata.
+        resolved_tier, rule = resolve_tier(
+            transcript=transcript,
+            metadata=session.metadata,
+            override=tier,
+        )
+        session.last_resolved_tier = resolved_tier.value
+        session.last_tier_rule = rule
+
+        # 3. Render the conversational system + user prompts. v3 carries the
+        #    <audience> block driven by the resolved tier; v2 ignores it.
         system_prompt, user_message = render_conversational_prompt(
             description=transcript,
             project_type=project_type,
@@ -211,6 +237,7 @@ class EstimationService:
             output_format=output_format,
             metadata=session.metadata,
             version=self.conversational_prompt_version,
+            tier=resolved_tier,
         )
 
         # 3. Build the messages array: fresh system + prior history (already
@@ -244,12 +271,20 @@ class EstimationService:
         # 5. Output guardrail (filter policy: normalises low-confidence answers).
         result = enforce_scope_response(result)
 
-        # 6. Append the turn to the history (sliding window auto-trims). We store
-        #    the (enriched) transcript as the user turn — not the rendered prompt —
+        # 6. Append the turn to the history, then compress. We store the
+        #    (enriched) transcript as the user turn — not the rendered prompt —
         #    so the persisted conversation reads cleanly when displayed later. The
         #    rules/format live in the system prompt, regenerated each turn, so the
         #    LLM loses nothing by seeing prior user turns as plain transcripts.
+        #    ``append`` is a pure data op now; compression (anchor promotion +
+        #    cumulative summary + sliding window) is the explicit next step.
         session.history.append(user=transcript, assistant=result.model_dump_json())
+        apply_compression(
+            session.history,
+            llm_wrapper=self.llm_wrapper,
+            compression_model=self.compression_model,
+            anchor_detection_mode=self.anchor_detection_mode,
+        )
 
         # 7. Second-pass extractor refreshes ProjectMetadata. Failure is
         #    swallowed inside update_metadata (returns previous unchanged).
@@ -275,4 +310,144 @@ class EstimationService:
             prompt_version=self.conversational_prompt_version,
             cached=False,
             usage=usage,
+        )
+
+    def estimate_with_acb(
+        self,
+        *,
+        session: Session,
+        transcript: str,
+        project_type: ProjectType,
+        detail_level: DetailLevel,
+        output_format: OutputFormat,
+        tier: Tier | None = None,
+    ) -> ACBResponse:
+        """Actor-Critic-Boss variant of the conversational pipeline.
+
+        The session is updated **only** with the final Boss-approved (or
+        Boss-synthesized) result — intermediate actor drafts are throwaway.
+        That keeps the conversation state coherent: from the user's point of
+        view, the turn produced exactly one assistant message.
+
+        Telemetry: ACB issues several LLM calls per turn (one actor + one
+        critic per iteration, plus the metadata refresh). We surface the meta
+        of the LAST actor draft as ``usage`` — that is the call that produced
+        the returned numbers, so it's the figure the grid mirror and detail
+        view care about. Critic / metadata / compression calls remain
+        observable in the structured logs.
+        """
+
+        # 1. Input guardrail.
+        check_input(transcript, openai_client=self.openai_client)
+
+        # 2. Resolve tier (same as the actor path).
+        resolved_tier, rule = resolve_tier(
+            transcript=transcript,
+            metadata=session.metadata,
+            override=tier,
+        )
+        session.last_resolved_tier = resolved_tier.value
+        session.last_tier_rule = rule
+
+        log.info(
+            "estimation_acb_request",
+            session_id=session.session_id,
+            tier=resolved_tier.value,
+            tier_rule=rule,
+            transcript_chars=len(transcript),
+        )
+
+        # 3. Build the actor callable. It re-renders the prompt each iteration
+        #    so critic feedback (if any) is woven in. The output guardrail runs
+        #    on every draft; the accepted draft is the one persisted below.
+        #    ``last_actor_meta`` captures the most recent generation's telemetry
+        #    for the response envelope (our project's per-call ``usage`` field).
+        last_actor_meta: dict[str, Any] = {}
+
+        def _actor(critic_feedback: CriticFeedback | None) -> EstimationResult:
+            system_prompt, user_message = render_conversational_prompt(
+                description=transcript,
+                project_type=project_type,
+                detail_level=detail_level,
+                output_format=output_format,
+                metadata=session.metadata,
+                version=self.conversational_prompt_version,
+                tier=resolved_tier,
+                critic_feedback=critic_feedback,
+            )
+            messages: list[dict[str, str]] = [{"role": "system", "content": system_prompt}]
+            messages.extend(session.history.to_messages())
+            messages.append({"role": "user", "content": user_message})
+
+            draft, meta = self.llm_wrapper.complete_structured_chat(
+                messages=messages,
+                response_model=EstimationResult,
+            )
+            last_actor_meta.clear()
+            last_actor_meta.update(meta)
+            log.info(
+                "acb_actor_draft",
+                with_critic_feedback=critic_feedback is not None,
+                issues_in_feedback=(
+                    len(critic_feedback.issues) if critic_feedback is not None else 0
+                ),
+                confidence_pct=draft.confidence_pct,
+                total_cost_eur=draft.total_cost_eur,
+                **meta,
+            )
+            return enforce_scope_response(draft)
+
+        # 4. Build the critic callable.
+        critic = Critic(llm_wrapper=self.llm_wrapper, model=self.critic_model)
+
+        def _critic(draft: EstimationResult) -> CriticFeedback:
+            return critic.review(
+                transcript=transcript,
+                metadata=session.metadata,
+                tier=resolved_tier,
+                result=draft,
+            )
+
+        # 5. Boss orchestrates.
+        boss = Boss(max_iterations=self.boss_max_iterations)
+        final_result, trace = boss.run(actor=_actor, critic=_critic)
+
+        # 6. Persist the final result into the session (single turn append),
+        #    then compress.
+        session.history.append(
+            user=transcript, assistant=final_result.model_dump_json()
+        )
+        apply_compression(
+            session.history,
+            llm_wrapper=self.llm_wrapper,
+            compression_model=self.compression_model,
+            anchor_detection_mode=self.anchor_detection_mode,
+        )
+
+        # 7. Refresh metadata from the final result.
+        session.metadata = update_metadata(
+            previous=session.metadata,
+            transcript=transcript,
+            result=final_result,
+            llm_wrapper=self.llm_wrapper,
+            model=self.metadata_extractor_model,
+        )
+
+        # 8. Attach the last actor draft's telemetry (same shape as the other
+        #    paths). ``max_iterations >= 1`` guarantees the actor ran at least
+        #    once, so ``last_actor_meta`` is populated.
+        usage = LlmUsage(
+            input_tokens=last_actor_meta.get("input_tokens", 0),
+            output_tokens=last_actor_meta.get("output_tokens", 0),
+            total_tokens=last_actor_meta.get("total_tokens", 0),
+            cost_usd=last_actor_meta.get("cost_usd", 0.0),
+            latency_ms=last_actor_meta.get("latency_ms"),
+            finish_reason=last_actor_meta.get("finish_reason"),
+        )
+        return ACBResponse(
+            result=final_result,
+            prompt_version=self.conversational_prompt_version,
+            cached=False,
+            usage=usage,
+            acb=trace,
         )

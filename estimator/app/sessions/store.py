@@ -70,6 +70,8 @@ class DbSessionStore:
             raise SessionNotFoundError(session.session_id)
         row.history = session.history.model_dump(mode="json")
         row.project_metadata = session.metadata.model_dump(mode="json")
+        row.last_resolved_tier = session.last_resolved_tier
+        row.last_tier_rule = session.last_tier_rule
         self._db.commit()
 
     @staticmethod
@@ -79,4 +81,6 @@ class DbSessionStore:
             history=ConversationHistory.model_validate(row.history),
             metadata=ProjectMetadata.model_validate(row.project_metadata),
             created_at=row.created_at,
+            last_resolved_tier=row.last_resolved_tier,
+            last_tier_rule=row.last_tier_rule,
         )

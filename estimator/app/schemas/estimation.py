@@ -127,3 +127,18 @@ class EstimationResponse(BaseModel):
     prompt_version: str
     cached: bool = False
     usage: LlmUsage | None = None
+
+
+from app.schemas.acb import BossTrace  # noqa: E402
+
+
+class ACBResponse(EstimationResponse):
+    """Conversational response with the Actor-Critic-Boss audit trail.
+
+    Same shape as ``EstimationResponse`` (incl. the ``usage`` telemetry) plus
+    the ``acb`` field carrying the iteration log. The UI uses the trail to
+    render an expander showing what the Critic flagged at each step and how
+    the Boss decided.
+    """
+
+    acb: BossTrace

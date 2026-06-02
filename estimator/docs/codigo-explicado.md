@@ -37,6 +37,7 @@ Cuando lleguemos a una pieza, todas sus dependencias ya estarán explicadas.
 15. [Cómo se ejecuta: entorno y Docker](#15-cómo-se-ejecuta-entorno-y-docker)
 16. [Mapa de dependencias completo](#16-mapa-de-dependencias-completo)
 17. [Memoria conversacional y adjuntos — sesión 5 (`sessions/`, `attachments/`)](#17-memoria-conversacional-y-adjuntos--sesión-5)
+18. [Actor-Critic-Boss, compresión, tier y evals — sesión 5 en vivo](#18-actor-critic-boss-compresión-tier-y-evals--sesión-5-en-vivo)
 
 ---
 
@@ -1570,6 +1571,220 @@ la respuesta conversacional no se rompe — la fuente de verdad sigue siendo `ch
 
 ---
 
+## 18. Actor-Critic-Boss, compresión, tier y evals — sesión 5 en vivo
+
+Después de la sesión 5 en directo, el ejercicio creció con un patrón nuevo, el
+**Actor-Critic-Boss (ACB)**, y tres piezas que lo acompañan: un **tier de audiencia**,
+la **compresión de memoria** y un **arnés de evaluación (evals)**. Esta sección las
+explica de abajo hacia arriba, igual que el resto del documento, y termina con la UI de
+Angular que las expone.
+
+> **La idea del patrón en una frase:** en vez de fiarnos de una sola pasada del modelo
+> (el *Actor*), una segunda llamada independiente (el *Critic*) audita la estimación y un
+> coordinador determinista (el *Boss*) decide si aceptarla, pedir otra iteración con el
+> feedback, o quedarse con el mejor borrador anotando las pegas. Es un patrón de
+> **auto-verificación**: gana fiabilidad a cambio de más llamadas al LLM.
+
+### 18.1 Qué cambió respecto al ejercicio base
+
+Dos cambios de comportamiento son importantes antes de entrar en las piezas nuevas:
+
+- **El prompt conversacional pasa de `v2` a `v3`.** `EstimationService` ahora usa por
+  defecto `conversational_prompt_version="v3"`. El v3 añade dos bloques al v2: `<audience>`
+  (dirigido por el tier) y `<critic_feedback>` (el feedback del Crítico que el Actor debe
+  corregir en la siguiente iteración). Ambos **degradan con elegancia**: sin tier el bloque
+  cae a "default"; sin feedback el bloque ni aparece. La salida sigue siendo el mismo
+  `EstimationResult`, así que el frontend no nota el cambio de forma.
+- **`ConversationHistory.append()` ya no recorta la ventana.** Antes, añadir un turno
+  recortaba la ventana deslizante ahí mismo. Ahora `append` es una operación de datos pura
+  y **la compresión es la única dueña de la ventana** (ver 18.3). Por eso el servicio llama
+  a `apply_compression(...)` después de cada `append`. Si no lo hiciera, el historial
+  crecería sin límite.
+
+### 18.2 El tier de audiencia (`sessions/tier_resolver.py`)
+
+**De qué depende:** `ProjectMetadata` (ya tenía los campos que necesita).
+
+El *tier* es **a quién va dirigida** la estimación: `executive`, `pm`, `developer` o
+`default`. Moldea el tono del prompt v3 (un ejecutivo quiere riesgos y un total
+defendible; un desarrollador quiere detalle técnico).
+
+`resolve_tier(transcript, metadata, override)` devuelve `(tier, regla)` con esta
+precedencia:
+
+1. **Override explícito** del que llama (el formulario manda `tier=executive`). Siempre gana.
+2. Si no, una **cadena de reglas puras** evaluadas en orden; gana la primera que casa:
+   `nda_detected` → executive, `regulatory_context` → executive, `technical_audience`
+   (≥2 palabras técnicas distintas) → developer, `low_budget_pm` (equipo ≤2) → pm.
+3. Si ninguna casa, `default`.
+
+Devolver también **el nombre de la regla** es lo que permite a la UI mostrar
+"executive (nda_detected)" en vez de solo "executive": la decisión es explicable. El
+detector es a propósito conservador (regex sobre frases clave; sin LLM, determinista).
+
+### 18.3 La compresión de memoria (`sessions/compression/`)
+
+**De qué depende:** `sessions/models.py` (la `ConversationHistory` ahora tiene `anchors`
+y `summary`), el `loader` (prompt `conversation_summary`) y el `llm_wrapper`.
+
+Cuando una conversación se alarga, no podemos mandar todos los turnos al modelo (coste y
+límite de contexto). La solución es **híbrida**, con tres piezas:
+
+- **`AnchorDetector` (`anchors.py`)** — decide si un turno lleva un **compromiso durable**
+  que la conversación no puede olvidar (NDA firmado, alcance congelado, presupuesto
+  cerrado, contexto regulatorio). Modo `heuristic` (regex, por defecto, barato) o `llm`
+  (un clasificador binario por Instructor, opt-in). Los *anchors* se guardan aparte y
+  **nunca** se descartan.
+- **`CumulativeSummarizer` (`summarizer.py`)** — funde los turnos viejos *no-anchor* en un
+  **resumen acumulativo** de texto libre (una sola llamada LLM barata). Si falla, conserva
+  el resumen anterior: la compresión es *best-effort*.
+- **`CompressionPolicy` (`policy.py`)** — el orquestador. Tras cada turno: mientras la
+  ventana supere `max_turns*2` mensajes, va sacando el par más viejo del frente; si es un
+  anchor lo promueve a `anchors`, si no lo encola para el resumidor. Es idempotente: una
+  segunda llamada sin cambios no hace nada.
+
+`to_messages()` recompone lo que ve el LLM en este orden:
+
+```
+[resumen acumulativo?]  +  anchors (literales)  +  ventana reciente
+```
+
+`apply_compression(history, ...)` es el envoltorio que usa el servicio para no tener que
+conocer las piezas internas. **Encaja gratis con nuestra persistencia:** `anchors` y
+`summary` son campos Pydantic de `ConversationHistory`, así que el `DbSessionStore` los
+serializa a/desde la columna JSON `chat_sessions.history` sin tocar nada.
+
+### 18.4 El prompt v3 (`prompts/estimation/v3/`)
+
+Igual que el v2 (lleva el bloque `<project_metadata>`) más:
+
+- `<audience>` en el *system*: un bloque condicional por `{{ tier }}` con instrucciones
+  distintas para executive / pm / developer / default.
+- `<critic_feedback>` en el *user*: solo aparece si se pasa `critic_feedback`; lista las
+  incidencias del Crítico (`[severidad] categoría @ field_path: descripción`) para que el
+  Actor las corrija. El `loader.render_conversational_prompt` acepta `tier` y
+  `critic_feedback` opcionales y los normaliza (un `Tier` enum o su string valen).
+
+### 18.5 El Crítico (`schemas/critic.py`, `services/critic.py`, `prompts/critic/`)
+
+**El esquema es el contrato.** `CriticFeedback` obliga al modelo a devolver una auditoría
+**estructurada**, nunca prosa: un `verdict` (`accept` / `needs_iteration` / `reject`),
+una lista de `CriticIssue` (cada una con `category`, `severity`, `field_path` y
+`description`) y `confidence_in_review`. Un validador impone coherencia: `needs_iteration`
+exige al menos una incidencia *critical/major* (las *minor* solas aceptan); `reject` exige
+al menos una incidencia que lo justifique. Que sea estructurado es lo que permite al Boss
+decidir sin parsear texto.
+
+`Critic.review(transcript, metadata, tier, result)` renderiza el prompt del crítico y llama
+a `complete_structured_chat(response_model=CriticFeedback)`. Es **stateless** y no decide
+qué hacer con su salida — eso es trabajo del Boss. Si la llamada falla, **no rompe el
+pipeline**: devuelve un "accept con confianza 0" sintético para que el borrador del Actor
+fluya sin cambios (degradación elegante).
+
+### 18.6 El Boss (`schemas/acb.py`, `services/boss.py`)
+
+El Boss es una **máquina de estados diminuta y determinista** que **no llama al LLM**: solo
+elige qué hacer. Recibe dos *callables* — `actor(feedback) -> EstimationResult` y
+`critic(result) -> CriticFeedback` — y ejecuta el bucle:
+
+```
+actor(feedback) → critic(result) → decide:
+   accept                         → devolver el resultado
+   needs_iteration y quedan iters → re-llamar al actor con el feedback (bucle)
+   reject  /  sin iteraciones     → síntesis: devolver el último borrador anotado
+```
+
+La **síntesis** (`_synthesize_fallback`) es una decisión de producto: cuando el bucle no
+converge, en vez de devolver un sobre vacío ("Out of scope"), se devuelve **el mejor
+borrador del Actor** con un bloque "⚠ Open caveats…" delante y la confianza reducida (con
+suelo en 30 para no disparar el validador de baja confianza). Es más útil para el usuario
+una estimación con salvedades que ceros. Todo queda trazado en `BossTrace` (`iterations`,
+`final_decision`, `iterations_run`), que viaja en la respuesta para que la UI pinte la
+auditoría.
+
+`acb.py` vive en `schemas/` (no en `services/`) a propósito: lo referencian tanto el
+orquestador como el modelo de respuesta `ACBResponse`, y así se evitan ciclos de import.
+
+### 18.7 El pipeline ACB y su endpoint (`services/estimation.py`, `routers/sessions.py`)
+
+`EstimationService.estimate_with_acb(...)` ata todo. Construye:
+
+- un **`_actor(feedback)`** que re-renderiza el prompt v3 (tejiendo el `critic_feedback` si
+  lo hay), llama al LLM, pasa el guardrail de salida y **guarda su `meta`** (telemetría);
+- un **`_critic(draft)`** que delega en `Critic.review(...)`;
+- y un `Boss(max_iterations=...)` que ejecuta el bucle.
+
+La sesión se actualiza **solo con el resultado final** aprobado/sintetizado por el Boss
+(los borradores intermedios son desechables): desde el punto de vista del usuario, el turno
+produjo exactamente un mensaje. Después: `apply_compression(...)` y el refresco de metadata,
+igual que el camino conversacional normal.
+
+> **Adaptación a nuestro stack:** la respuesta es `ACBResponse`, que hereda de nuestro
+> `EstimationResponse` (con el campo `usage`) y añade `acb: BossTrace`. Como el ACB hace
+> varias llamadas por turno, exponemos como `usage` la telemetría del **último borrador del
+> Actor** (el que produjo los números devueltos); el resto de llamadas — crítico, metadata,
+> compresión — quedan en los logs estructurados.
+
+**El endpoint** `POST /sessions/{id}/estimate-acb` es hermano de `/estimate`: mismo contrato
+multipart (más un campo `tier` opcional) y devuelve `ACBResponse`. El router refactoriza el
+prólogo compartido (cargar sesión + extraer adjuntos) en `_resolve_session_and_enrich` y el
+mapeo de errores en `_map_pipeline_errors`. Tras la llamada hace lo mismo que `/estimate`:
+`store.save(session)` (nuestra persistencia) y el **espejo a la rejilla**
+(`_mirror_turn_to_grid`) — que funciona igual porque `ACBResponse` *es* un
+`EstimationResponse`.
+
+### 18.8 Persistencia del tier (`db_models.py`, `db.py`, `sessions/store.py`)
+
+El `Session` gana `last_resolved_tier` y `last_tier_rule` (el último tier resuelto, para que
+`GET /sessions/{id}` muestre el panel sin re-ejecutar el resolver). Como son a nivel de
+sesión (no dentro de `history`), se persisten en **dos columnas nuevas** de `chat_sessions`.
+Reutilizamos el patrón idempotente que ya tenía el proyecto: `db._ensure_columns` se
+generaliza para que, además de `estimations`, añada con `ADD COLUMN IF NOT EXISTS` las
+columnas de `chat_sessions`. El `DbSessionStore.save`/`_to_session` las escribe y relee. Los
+campos `anchors`/`summary`, en cambio, no necesitan columnas: viajan dentro del JSON de
+`history`.
+
+### 18.9 El arnés de evaluación (`evals/`)
+
+**De qué depende:** la app entera (lo prueba de punta a punta) y `app/schemas/estimation.py`.
+
+Mide la **calidad** del estimador contra un conjunto fijo de casos:
+
+- `dataset.py` — `GoldenCase` tipado + cargador de `golden_dataset.json` (16 casos: mezcla
+  de tipos de proyecto, niveles de detalle, sabores NDA/regulatorio y un par de
+  adversariales fuera de alcance). Las comprobaciones son **rangos laxos**, no igualdad
+  exacta: un LLM tiene latitud legítima al fasear.
+- `metrics.py` — métricas **deterministas** (sin LLM): `SchemaAdherenceMetric` (sumas y
+  prefijo de baja confianza), `CostBoundsMetric` (coste/duración en rango, o sobre vacío
+  para los OoS) y `ContentRecallMetric` (¿menciona lo que importaba?).
+- `run.py` — CLI que dispara cada caso contra `/estimate` (modo `actor`) o `/estimate-acb`
+  (modo `acb`) y saca una tabla comparativa. Por defecto usa el `TestClient` en-proceso.
+
+> **Adaptación a nuestro stack:** el `run.py` del profesor sobreescribía un `SessionStore`
+> en memoria que nosotros no tenemos. En su lugar, apuntamos `get_db` a un sqlite en memoria
+> (mismo patrón que los tests), así el `DbSessionStore` real corre sin Postgres y la eval es
+> autocontenida. La dependencia de desarrollo `deepeval` se declara (para un futuro juez LLM
+> con `--llm-judge`) aunque el arnés determinista no la necesita.
+
+### 18.10 La UI en Angular (`estimator-frontend/`)
+
+El backend del profesor es Rails y **no** trae UI de ACB; aquí la implementamos en nuestro
+stack (Angular + Material + signals). Los cambios viven en la pantalla de detalle
+conversacional:
+
+- **Modelos** (`models/estimation.ts`): `AcbTier`, `ACBIteration`, `BossTrace` y el campo
+  opcional `acb?` en `EstimationResponse`, más `ACB_TIERS` y `BOSS_DECISION_META`.
+- **Servicio** (`services/estimation.service.ts`): `estimateInSessionWithAcb(...)`, que
+  postea a `/sessions/{id}/estimate-acb` con el campo `tier`.
+- **Componente** (`pages/detail/...`): un *checkbox* "Revisión Actor-Critic-Boss" y, si se
+  activa, un selector de *tier*. El `send()` decide el endpoint según el toggle y guarda el
+  `acb` de la respuesta en una *signal*. Un panel de auditoría (un `mat-accordion`) pinta la
+  decisión final del Boss y, por iteración, el veredicto del crítico, su confianza y las
+  incidencias. La traza no se persiste en el historial, así que el panel refleja el **último
+  turno ACB** en vivo.
+
+---
+
 ## Resumen en una página
 
 | Pieza | Archivo | Responsabilidad |
@@ -1595,5 +1810,12 @@ la respuesta conversacional no se rompe — la fuente de verdad sigue siendo `ch
 | Memoria (ORM) | `db_models.py` | Fila `chat_sessions` (history + project_metadata como JSON) |
 | Extractor metadata | `sessions/metadata_extractor.py` | 2ª llamada LLM por turno → refresca `ProjectMetadata` |
 | Adjuntos | `attachments/extractor.py` | Camino B: extrae texto de PDF/DOCX y lo concatena al prompt |
-| Pipeline conversacional | `services/estimation.py` | `estimate_conversational`: v2 + historial + extractor |
-| Endpoints sesión | `routers/sessions.py` | `POST /sessions`, `POST /sessions/{id}/estimate` (multipart) |
+| Pipeline conversacional | `services/estimation.py` | `estimate_conversational`: v3 + tier + historial + compresión + extractor |
+| Endpoints sesión | `routers/sessions.py` | `POST /sessions`, `POST /sessions/{id}/estimate` y `…/estimate-acb` (multipart) |
+| Tier de audiencia | `sessions/tier_resolver.py` | Resuelve `executive/pm/developer/default` (override o cadena de reglas) |
+| Compresión de memoria | `sessions/compression/` | Anchors (no se olvidan) + resumen acumulativo + ventana; `apply_compression` |
+| Crítico | `schemas/critic.py`, `services/critic.py` | Auditoría estructurada del resultado (`CriticFeedback`), stateless, falla a "accept" |
+| Boss | `schemas/acb.py`, `services/boss.py` | Máquina de estados determinista: accept / iterate / síntesis; traza en `BossTrace` |
+| Pipeline ACB | `services/estimation.py` | `estimate_with_acb`: bucle Actor↔Critic, persiste solo el resultado final |
+| Evals | `evals/` | `GoldenCase` + métricas deterministas + CLI `run.py` (modos actor/acb) |
+| UI ACB (Angular) | `estimator-frontend/.../detail` | Toggle + selector de tier + panel de auditoría del `BossTrace` |
