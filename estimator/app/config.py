@@ -68,6 +68,16 @@ class Settings(BaseSettings):
     # in the single available retry, and the loop falls back without converging.
     BOSS_MAX_ITERATIONS: int = 3
 
+    # --- Session 6 (CAG stress test) ---
+    # The phases-sum business rule (per-phase costs must equal total_cost_eur)
+    # is enforced by default. The stress runner sets ENFORCE_PHASES_SUM=false
+    # because gpt-4o-mini cannot reliably make the two match; the repeated
+    # Instructor re-prompts otherwise turn into 502s and abort sessions on turn
+    # 1, which destroys the measurement (under load we care about latency, cost
+    # and memory drift, not the euro-accuracy of the estimate). Keep it True in
+    # production — it is a real business-rule guardrail.
+    ENFORCE_PHASES_SUM: bool = True
+
     @model_validator(mode="after")
     def validate_at_least_one_api_key(self) -> "Settings":
         """LiteLLM may try either provider via fallback, so we require at least one key."""

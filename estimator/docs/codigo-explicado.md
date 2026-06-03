@@ -38,6 +38,7 @@ Cuando lleguemos a una pieza, todas sus dependencias ya estarán explicadas.
 16. [Mapa de dependencias completo](#16-mapa-de-dependencias-completo)
 17. [Memoria conversacional y adjuntos — sesión 5 (`sessions/`, `attachments/`)](#17-memoria-conversacional-y-adjuntos--sesión-5)
 18. [Actor-Critic-Boss, compresión, tier y evals — sesión 5 en vivo](#18-actor-critic-boss-compresión-tier-y-evals--sesión-5-en-vivo)
+19. [Stress test del CAG: medir dónde rompe — sesión 6 (`evals/stress/`)](#19-stress-test-del-cag-medir-dónde-rompe--sesión-6)
 
 ---
 
@@ -1785,6 +1786,181 @@ conversacional:
 
 ---
 
+## 19. Stress test del CAG: medir dónde rompe — sesión 6
+
+Hasta la sesión 5 el sistema es un **CAG (Cache-Augmented Generation)**: cada turno
+mete en el prompt todo el contexto que tiene —`[resumen] + anchors + ventana
+deslizante + ProjectMetadata + tier + transcripción + texto de los adjuntos`— y confía
+en que **todo cabe** en la ventana del modelo. Funciona mientras las conversaciones son
+cortas y los adjuntos pequeños. El ejercicio de la sesión 6 no añade una capacidad
+nueva: **instrumenta** el CAG, lo somete a carga y produce un mapa empírico de **a partir
+de qué punto se degrada** —en latencia, en coste por turno, o en pérdida de memoria—.
+Ese baseline cuantitativo es lo que en la sesión en vivo se compara contra RAG.
+
+> **La idea en una frase:** "el contexto está lleno" no es un error del LLM, es una
+> **decisión de arquitectura**. Para tomarla con datos hay que medir tres curvas
+> canónicas de cualquier sistema basado en contexto al escalar: **latencia vs tokens**,
+> **coste acumulado vs turnos** y **recall de hechos vs longitud del historial**.
+
+Todo lo nuevo vive en el paquete `evals/stress/` (más una pequeña instrumentación en el
+pipeline). No se reescribe nada del CAG: el ejercicio **mide**, no optimiza.
+
+### 19.1 La observación unificada por turno (`schemas/estimation.py`, `services/estimation.py`)
+
+El pipeline ya emitía señales sueltas a lo largo de cada turno (`cache_hit`,
+`llm_call_completed`, `history_compressed`, `session_estimate_received`…). Para extraer
+un CSV de una sola pasada eso es incómodo: hay que reconciliar varias líneas de log por
+*timestamp*. La pieza base del ejercicio es un **único evento agregado por turno**.
+
+- **`TurnObservation`** (en `schemas/estimation.py`): un modelo Pydantic con los 13
+  campos que describen un turno —`turn_index`, `session_id`, `enriched_transcript_chars`,
+  `attachments_total_chars`, `messages_in_window`, `anchors_count`, `summary_chars`,
+  `tokens_in`, `tokens_out`, `cost_usd`, `latency_ms`, `cache_hit_kind`,
+  `last_resolved_tier`—. Se añade un campo opcional `observation: TurnObservation | None`
+  a `EstimationResponse`. Solo lo rellena el camino conversacional; los demás (la ruta
+  transaccional, los aciertos de caché) lo dejan en `None`, así el contrato de producción
+  no se contamina y los clientes antiguos que ignoran el campo siguen funcionando.
+- **Emisión** (en `estimate_conversational`): justo antes del `return`, se construye la
+  `TurnObservation` y se emite `log.info("turn_observed", **observation.model_dump())`.
+  Dos sutilezas importantes:
+  - El `turn_index` se captura **antes** de la compresión. Tras comprimir, la ventana
+    deslizante se estanca en su tope (`max_turns`) y `len(mensajes) // 2` dejaría de
+    reflejar cuántos turnos ha visto de verdad la sesión —justo el número que las curvas
+    necesitan—.
+  - `cache_hit_kind` es siempre `"none"`: el camino conversacional **no pasa por las
+    cachés** por diseño (cada turno depende del historial). El campo se mantiene por
+    simetría con el endpoint transaccional y para documentar esa elección.
+
+> **Por qué un evento agregado y no cinco logs:** el runner lee `response.observation`
+> directamente del JSON de respuesta —cero parseo de logs, correlación trivial entre
+> `messages_in_window` y `cost_usd`, sin reconciliar timestamps—. El campo
+> `attachments_total_chars` se calcula en el router (`_resolve_session_and_enrich` ahora
+> devuelve también la suma de texto extraído crudo, sin los marcadores
+> `--- attachment: … ---`) y se pasa al servicio.
+
+### 19.2 Los escenarios sintéticos (`evals/stress/scenarios.py`)
+
+Tres conversaciones de 20 turnos sobre un mismo proyecto, cada una diseñada para forzar
+un modo de fallo distinto del CAG:
+
+- **`growing`** — el proyecto acrece requisitos turno a turno (SSO, multi-tenant, audit
+  log, i18n…). Estresa la **expulsión de la ventana deslizante**: en el turno 20, la
+  información del turno 1 debe sobrevivir como *anchor* explícito o dentro del resumen
+  acumulativo.
+- **`pivot`** — en el turno 5 el stack cambia (React Native → Flutter). Mide si
+  `mentioned_technologies` **acumula ambas** (correcto) o **pierde** la primera (drift).
+- **`contradiction`** — el turno 3 dice "presupuesto 30k EUR", el turno 8 lo sube a "80k".
+  Mide qué versión sobrevive en la metadata y/o el resumen.
+
+Cada escenario es una lista de `ScenarioTurn(transcript, fact_introduced, fact_field)`.
+El `fact_introduced` es el *hecho* que el runner buscará en turnos posteriores; el
+`fact_field` le dice a `MemoryDriftMetric` **dónde** mirar (p. ej. `"project_name"` para
+el nombre del turno 1). El `dataclass Scenario` exige ≥20 turnos en `__post_init__` —el
+ejercicio manda forzar la ventana más allá de su tope—.
+
+### 19.3 Las tres métricas (`evals/stress/metrics.py`)
+
+Viven **aparte** de `evals/metrics.py` porque operan sobre una `TurnObservation` y un
+*snapshot* de sesión (la forma JSON de `GET /sessions/{id}`), no sobre
+`(GoldenCase, EstimationResult)`. La única razón del módulo separado es ese desajuste de
+firma: el `MetricResult` (`name`, `score`, `passed`, `details`) se **reutiliza tal cual**
+de `evals/metrics.py` para que la forma del reporte sea uniforme. **Determinismo >
+sofisticación**: nada de embeddings ni LLM-as-judge.
+
+- **`LatencyBudgetMetric(budget_ms)`** — 1.0 si `latency_ms ≤ budget_ms`. Convierte un
+  SLA ("P95 < 8s") en un test.
+- **`CostBudgetMetric(budget_usd)`** — 1.0 si `cost_usd ≤ budget_usd` (coste de **un**
+  turno; el acumulado lo calcula el runner).
+- **`MemoryDriftMetric(fact, fact_field)`** — 1.0 si el `fact` aparece (substring
+  *case-insensitive*) en el slice del snapshot que indica `fact_field`:
+  `project_name`, `technologies`, `scope`, `summary`, o `any` (serializa todo el snapshot
+  y busca). Es la respuesta determinista a "¿en el turno N sigue vivo el nombre del
+  proyecto del turno 1?".
+
+> **Por qué los presupuestos son contratos, no banderas:** una `LatencyBudgetMetric` no
+> "observa" la latencia *a posteriori* —la **convierte en un criterio de aprobado/fallo**
+> turno a turno—. Igual que los validadores de `EstimationResult` convirtieron las reglas
+> de negocio en re-prompts, aquí el SLA se convierte en una columna booleana del CSV.
+
+### 19.4 El corpus de adjuntos (`evals/stress/fixtures/build_pdfs.py`)
+
+Genera PDFs sintéticos de tamaños calibrados —`attach_{5,20,50,100}kb.pdf`— donde el
+sufijo se refiere al **texto extraído** (lo que `pypdf` saca), no al peso en disco. Usa
+`fpdf2` (nueva dependencia en `pyproject.toml`) repitiendo un párrafo determinista: dos
+ejecuciones producen PDFs idénticos. Los PDFs **no se comitean** (están en `.gitignore`);
+solo se comitea el script y el runner los regenera. El tamaño 0 KB es la *baseline* (sin
+adjunto). El de 100 KB (~102 K chars extraídos) cae por encima del tope
+`MAX_ATTACHMENT_CHARS = 60_000` del extractor: ese caso mide el **régimen truncado**.
+
+### 19.5 El runner y el CSV (`evals/stress/run.py`)
+
+Un CLI que orquesta `escenarios × tamaños_de_adjunto × repeticiones`. Por cada turno:
+(1) hace `POST /sessions/{id}/estimate` con la transcripción y el PDF; (2) lee
+`response.observation` —sin parsear logs—; (3) hace `GET /sessions/{id}` para el snapshot
+post-turno que necesita `MemoryDriftMetric`; (4) escribe **una fila de CSV** con toda la
+telemetría más los tres veredictos booleanos. Al final imprime un resumen P50/P95 por
+celda.
+
+```bash
+uv run python -m evals.stress.run \
+    --http http://localhost:8000 \
+    --scenarios growing,pivot,contradiction \
+    --attachment-sizes 0,5,20,50,100 \
+    --repeats 3 \
+    --output evals/stress/results.csv
+```
+
+Tiene dos transportes (igual que `evals/run.py`): `--http` contra un estimator real, o
+un `TestClient` en proceso para el *smoke*. **Desvío respecto al oficial:** el branch en
+proceso del profesor monta un `SessionStore(max_turns=6)` en memoria; como aquí el store
+es Postgres (`DbSessionStore` sobre `get_db`), el branch sobreescribe `get_db` con un
+sqlite en memoria —exactamente el patrón de `tests/conftest.py`— y `get_session_store`
+lo usa de forma transparente. El `results.csv` está en `.gitignore` (se regenera);
+el `REPORT.md` es el entregable.
+
+### 19.6 El reporte y los tests (`evals/stress/REPORT.md`, `tests/test_stress_*.py`)
+
+- **`REPORT.md`** — el deliverable que se lleva al directo: tabla resumen (P50/P95,
+  coste, % de recall), las tres curvas **como tablas** (sin gráficos), y dos párrafos de
+  lectura ("¿a partir de qué turno empieza a romperse mi CAG y por qué?"). Se rellena a
+  mano tras correr el runner contra un LLM real; el repo trae el esqueleto con la forma
+  esperada.
+- **Tests** — `tests/test_stress_metrics.py` (15 casos: un aprobado claro, un fallo y el
+  caso límite por métrica, todos deterministas) y `tests/test_stress_runner.py` (2 smoke
+  con el `FakeLLMWrapper`, que ejercitan el cableado `observation`→CSV→métricas sin gastar
+  crédito de LLM). La suite completa pasa de **169 → 186 tests** (+17 del stress;
+  187 tras añadir el test del flag `ENFORCE_PHASES_SUM`, §19.7).
+
+### 19.7 Ejecución real: dos ajustes para poder medir
+
+Al correr el stress contra un LLM real aparecieron dos obstáculos que obligaron a
+tocar dos piezas. Ambos están documentados en `evals/stress/REPORT.md` (sección
+*History*) y son **desvíos conscientes para poder medir**, no mejoras del CAG.
+
+- **`ENFORCE_PHASES_SUM` (config + validador).** El validador
+  `phases_sum_matches_total` de `EstimationResult` exige que las fases sumen
+  exactamente `total_cost_eur`. `gpt-4o-mini` no lo consigue de forma fiable (se
+  equivoca ~20%), así que con la regla activa Instructor agota sus reintentos y el
+  turno devuelve 502 — el ~57% de los turnos morían en el turno 1. Se añadió el
+  ajuste `ENFORCE_PHASES_SUM` (`config.py`, default `True`): el validador lo lee
+  vía `get_settings()` y, si está en `False`, **salta solo esa regla** (el resto
+  del pipeline y los demás validadores siguen igual). El stress run pone
+  `ENFORCE_PHASES_SUM=false` en `.env`; producción lo mantiene en `True`. Medimos
+  latencia/coste/memoria, no la exactitud del euro.
+
+- **`turn_index` real (runner).** `TurnObservation.turn_index` se deriva en el
+  servidor de `len(history.messages) // 2`, capturado antes de comprimir. Pero
+  como la ventana deslizante recorta el historial cada turno, ese número **se
+  estanca en el tope** (`MAX_CONVERSATION_TURNS + 1 = 7`) a partir del turno 7 —
+  inservible como eje X de las curvas coste/drift-vs-turno. El runner
+  (`evals/stress/run.py`) conoce el turno real porque es quien conduce la
+  conversación, así que **escribe en el CSV el índice de su bucle**
+  (`turn_number`), sobreescribiendo el valor del servidor. El `turn_observed` del
+  log sigue llevando el valor aproximado; arreglarlo de raíz pediría un contador
+  de turnos persistido en la sesión.
+
+---
+
 ## Resumen en una página
 
 | Pieza | Archivo | Responsabilidad |
@@ -1819,3 +1995,9 @@ conversacional:
 | Pipeline ACB | `services/estimation.py` | `estimate_with_acb`: bucle Actor↔Critic, persiste solo el resultado final |
 | Evals | `evals/` | `GoldenCase` + métricas deterministas + CLI `run.py` (modos actor/acb) |
 | UI ACB (Angular) | `estimator-frontend/.../detail` | Toggle + selector de tier + panel de auditoría del `BossTrace` |
+| Observación por turno | `schemas/estimation.py` | `TurnObservation` (13 campos) + `observation` en `EstimationResponse`; evento `turn_observed` |
+| Escenarios stress | `evals/stress/scenarios.py` | 3 conversaciones de 20 turnos (growing/pivot/contradiction) con fact-trackers |
+| Métricas stress | `evals/stress/metrics.py` | `LatencyBudgetMetric`, `CostBudgetMetric`, `MemoryDriftMetric` (deterministas, reusan `MetricResult`) |
+| Fixtures PDF | `evals/stress/fixtures/build_pdfs.py` | PDFs sintéticos calibrados 5/20/50/100 KB (gitignored, deterministas) |
+| Runner stress | `evals/stress/run.py` | Orquesta escenarios × tamaños × repeticiones → `results.csv` + resumen P50/P95 |
+| Reporte stress | `evals/stress/REPORT.md` | Entregable: tabla resumen + 3 curvas (como tablas) + 2 párrafos de lectura |

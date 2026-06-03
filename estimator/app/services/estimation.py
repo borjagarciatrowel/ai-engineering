@@ -43,6 +43,7 @@ from app.schemas.estimation import (
     LlmUsage,
     OutputFormat,
     ProjectType,
+    TurnObservation,
 )
 from app.services.boss import Boss
 from app.services.cache import EstimationCache
@@ -199,6 +200,7 @@ class EstimationService:
         detail_level: DetailLevel,
         output_format: OutputFormat,
         tier: Tier | None = None,
+        attachments_total_chars: int = 0,
     ) -> EstimationResponse:
         """Multi-turn estimation pipeline (Session 5).
 
@@ -279,6 +281,11 @@ class EstimationService:
         #    ``append`` is a pure data op now; compression (anchor promotion +
         #    cumulative summary + sliding window) is the explicit next step.
         session.history.append(user=transcript, assistant=result.model_dump_json())
+        # Capture turn_index BEFORE compression: once the sliding window hits
+        # its cap, ``len(messages) // 2`` plateaus and would stop reflecting how
+        # many turns the session has actually seen. The stress curves need the
+        # real turn number, not the windowed one.
+        turn_index = len(session.history.messages) // 2
         apply_compression(
             session.history,
             llm_wrapper=self.llm_wrapper,
@@ -305,11 +312,38 @@ class EstimationService:
             latency_ms=meta.get("latency_ms"),
             finish_reason=meta.get("finish_reason"),
         )
+
+        # 9. Emit the unified per-turn observation (Session 6 stress test). One
+        #    structured event makes the runner trivial: it reads
+        #    ``response.observation`` straight from the JSON and never has to
+        #    reconcile timestamps across the five separate log lines this
+        #    pipeline already emits. ``cache_hit_kind`` is "none" because the
+        #    conversational path bypasses both caches by design. Our wrapper
+        #    reports tokens as ``input_tokens``/``output_tokens``; the exercise
+        #    schema calls them ``tokens_in``/``tokens_out`` — map them here.
+        observation = TurnObservation(
+            turn_index=max(1, turn_index),
+            session_id=session.session_id,
+            enriched_transcript_chars=len(transcript),
+            attachments_total_chars=attachments_total_chars,
+            messages_in_window=len(session.history.messages),
+            anchors_count=len(session.history.anchors),
+            summary_chars=len(session.history.summary or ""),
+            tokens_in=int(meta.get("input_tokens", 0) or 0),
+            tokens_out=int(meta.get("output_tokens", 0) or 0),
+            cost_usd=float(meta.get("cost_usd", 0.0) or 0.0),
+            latency_ms=int(meta.get("latency_ms", 0) or 0),
+            cache_hit_kind="none",
+            last_resolved_tier=session.last_resolved_tier,
+        )
+        log.info("turn_observed", **observation.model_dump())
+
         return EstimationResponse(
             result=result,
             prompt_version=self.conversational_prompt_version,
             cached=False,
             usage=usage,
+            observation=observation,
         )
 
     def estimate_with_acb(

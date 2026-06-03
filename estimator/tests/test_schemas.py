@@ -88,12 +88,28 @@ def _valid_result(**overrides: object) -> dict[str, object]:
     return base
 
 
-def test_phases_sum_must_equal_total_cost() -> None:
+def test_phases_sum_must_equal_total_cost(monkeypatch) -> None:
+    # Pin the flag ON so the test is hermetic — the local .env may set it false
+    # for the stress run, which pydantic-settings would otherwise pick up here.
+    from app.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "ENFORCE_PHASES_SUM", True)
     bad = _valid_result(total_cost_eur=31_000)  # phases still sum to 30_000
     with pytest.raises(ValidationError) as exc_info:
         EstimationResult(**bad)
     msg = str(exc_info.value)
     assert "phases sum" in msg and "total_cost_eur" in msg
+
+
+def test_phases_sum_check_skipped_when_disabled(monkeypatch) -> None:
+    # Session 6: ENFORCE_PHASES_SUM=false (used by the stress runner) skips ONLY
+    # this rule, so gpt-4o-mini's arithmetic slips stop 502-ing the run. A gross
+    # 30_000-vs-99_000 mismatch must construct cleanly when the flag is off.
+    from app.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "ENFORCE_PHASES_SUM", False)
+    result = EstimationResult(**_valid_result(total_cost_eur=99_000))
+    assert result.total_cost_eur == 99_000
 
 
 def test_low_confidence_requires_out_of_scope_prefix() -> None:

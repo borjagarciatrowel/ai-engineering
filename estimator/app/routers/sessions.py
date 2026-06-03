@@ -233,11 +233,15 @@ async def _resolve_session_and_enrich(
     transcript: str,
     attachments: list[UploadFile],
     store: DbSessionStore,
-) -> tuple[Session, str]:
+) -> tuple[Session, str, int]:
     """Shared prelude for both /estimate and /estimate-acb.
 
-    Returns ``(session, enriched_transcript)``. Raises ``HTTPException`` for
-    session/attachment problems; the caller wraps the LLM call separately.
+    Returns ``(session, enriched_transcript, attachments_total_chars)``. The
+    third element is the sum of raw extracted text across all attachments
+    (excluding the ``--- attachment: ... ---`` fences that ``enrich_transcript``
+    adds); the stress runner feeds it into the ``attachments_total_chars`` field
+    of ``TurnObservation`` without re-doing the math. Raises ``HTTPException``
+    for session/attachment problems; the caller wraps the LLM call separately.
     """
     try:
         session = store.get_or_404(session_id)
@@ -274,14 +278,16 @@ async def _resolve_session_and_enrich(
             extracted.append((upload.filename, text))
 
     enriched = enrich_transcript(transcript=transcript, attachments=extracted)
+    attachments_total_chars = sum(len(text) for _, text in extracted)
     log.info(
         "session_estimate_received",
         session_id=session_id,
         transcript_chars=len(transcript),
         enriched_transcript_chars=len(enriched),
         attachment_count=len(extracted),
+        attachments_total_chars=attachments_total_chars,
     )
-    return session, enriched
+    return session, enriched, attachments_total_chars
 
 
 def _map_pipeline_errors(exc: Exception) -> HTTPException:
@@ -316,7 +322,7 @@ async def estimate_in_session(
     service: EstimationService = Depends(get_estimation_service),
     db: SaSession = Depends(get_db),
 ) -> EstimationResponse:
-    session, enriched = await _resolve_session_and_enrich(
+    session, enriched, attachments_total_chars = await _resolve_session_and_enrich(
         session_id, transcript, attachments, store
     )
 
@@ -328,6 +334,7 @@ async def estimate_in_session(
             detail_level=detail_level,
             output_format=output_format,
             tier=tier,
+            attachments_total_chars=attachments_total_chars,
         )
     except HTTPException:
         raise
@@ -381,7 +388,7 @@ async def estimate_in_session_acb(
     show the audit trail in the conversational detail view. Persistence + grid
     mirror behave exactly like /estimate — only the final Boss-approved result
     lands in the session and the grid."""
-    session, enriched = await _resolve_session_and_enrich(
+    session, enriched, _attachments_total_chars = await _resolve_session_and_enrich(
         session_id, transcript, attachments, store
     )
 
