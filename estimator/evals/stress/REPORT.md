@@ -5,6 +5,34 @@
 > `uv run python -m evals.stress.run --http http://localhost:8000` against the
 > live estimator (real `gpt-4o-mini`, real PDFs) on 2026-06-03.
 
+## En lenguaje llano (resumen para no técnicos)
+
+Imagina este sistema como un consultor brillante pero con amnesia: olvida todo en
+cuanto termina de hablar. Para que mantenga una conversación coherente, en cada
+turno le entregamos una **carpeta con todo lo dicho hasta entonces**, más el
+documento que el cliente haya adjuntado. Esta prueba de estrés mide hasta dónde
+aguanta ese truco de "cargar con todo" antes de volverse lento, caro u olvidadizo.
+
+**El veredicto: no se rompe por memoria ni por dinero, sino por lentitud — y
+empeora cuanto más grande es el documento adjunto.** Sin adjunto responde en ~6 s;
+con un documento grande (50–100 KB) sube a ~20–24 s (y el usuario espera ~23 s
+reales por turno, porque cada turno hace una segunda llamada por detrás). **Solo 1
+de cada 3 respuestas bajó del límite de 8 s.** La causa: el sistema relee el
+documento entero en cada turno y, como guarda los últimos ~6 turnos, acaba
+arrastrando **varias copias del mismo documento** (hasta 159.000 fragmentos de
+texto por turno con 100 KB).
+
+El **dinero** nunca fue el problema (céntimos por turno), aunque el coste total se
+multiplica ~12× al adjuntar un documento grande. Y la **memoria** marcó 100 %, pero
+es un resultado engañoso: el nombre del proyecto se guarda en una ficha aparte que
+nunca se recorta, así que era imposible olvidarlo — no llegamos a probar la pregunta
+difícil de memoria.
+
+**Conclusión:** la prueba justifica el salto a **RAG**. En vez de releer el
+documento entero cada turno, RAG buscaría solo el párrafo relevante — devolviendo la
+velocidad a niveles de "sin adjunto" y cortando el coste. Los detalles técnicos y
+los números exactos están a continuación.
+
 ## Run outcome
 
 Clean run. **780 rows: 772 successful turns, 8 errors (1.0 %).** 45 sessions
