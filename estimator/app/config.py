@@ -1,4 +1,5 @@
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
 from pydantic import model_validator
@@ -77,6 +78,25 @@ class Settings(BaseSettings):
     # and memory drift, not the euro-accuracy of the estimate). Keep it True in
     # production — it is a real business-rule guardrail.
     ENFORCE_PHASES_SUM: bool = True
+
+    # --- Session 6 live (data-driven AI: ingestion + PII) ---
+    # We reuse the single Postgres declared above (DATABASE_URL). In Session 6
+    # it backs two new tables (pseudonym_mappings, ingestion_jobs) created by
+    # Alembic. The compose image is pgvector/pgvector:pg16 so Session 7 can
+    # enable the vector extension via a follow-up migration — no extension is
+    # activated yet here.
+    # Where the YAML catalog lives, resolved relative to the working directory.
+    CATALOG_PATH: Path = Path("data/catalog/catalog.yaml")
+    # Root that ``CatalogSource.location`` entries are resolved against.
+    INGESTION_DATA_ROOT: Path = Path("data/seed")
+    # spaCy model loaded by the Presidio AnalyzerEngine. Must be the Spanish one
+    # or Presidio silently misses Hispanic names. ``es_core_news_md`` recommended.
+    PRESIDIO_SPACY_MODEL: str = "es_core_news_md"
+    # Faker locale used to generate consistent pseudonyms per entity_type.
+    PSEUDONYM_FAKER_LOCALE: str = "es_ES"
+    # HMAC salt for the pseudonym mapping hash. Rotating it invalidates all prior
+    # mappings (the GDPR Art. 17 lever). CHANGE IN PROD — kept in env, not code.
+    PSEUDONYM_HASH_SALT: str = "change-me-in-prod"
 
     @model_validator(mode="after")
     def validate_at_least_one_api_key(self) -> "Settings":

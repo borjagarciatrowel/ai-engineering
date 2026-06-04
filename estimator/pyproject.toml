@@ -25,6 +25,24 @@ dependencies = [
     "pypdf>=4.0",
     "python-docx>=1.1",
     "fpdf2>=2.7",
+    # Session 6 — data-driven AI (ingestion, cleaning, PII).
+    # sqlalchemy + psycopg2-binary are already declared above (Session 5
+    # persistence). We keep psycopg2 (our driver) rather than the professor's
+    # psycopg v3. alembic manages only the two new Session-6 tables.
+    # NOTE: unstructured[all-docs] is deliberately NOT added — the XLSX/DOCX/PDF
+    # parsers that would use it ship only in the instructor's guides/, not here.
+    "pandas>=2.2",
+    "pandera>=0.20",
+    "pyyaml>=6.0",
+    "alembic>=1.13",
+    "openpyxl>=3.1",
+    "presidio-analyzer>=2.2",
+    "presidio-anonymizer>=2.2",
+    "spacy>=3.7",
+    "faker>=24.0",
+    # The Spanish spaCy model is not a PyPI dep; install it once with
+    #   uv run python -m spacy download es_core_news_md
+    # It is only needed at runtime (Presidio); unit tests stub the analyzer.
 ]
 
 [dependency-groups]

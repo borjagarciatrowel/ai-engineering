@@ -25,15 +25,21 @@ services:
         condition: service_healthy
 
     # Bind-mount the app/ directory so code changes are reflected immediately
-    # inside the container without rebuilding the image. Tests too, so we can
-    # run `pytest` against the live container during development.
+    # inside the container without rebuilding the image. Tests, data and alembic
+    # too: Session 6 adds ingest sources under data/seed/ and a migration under
+    # alembic/versions/, both expected to survive a container restart.
     volumes:
       - ./app:/app/app
       - ./tests:/app/tests
+      - ./data:/app/data
+      - ./alembic:/app/alembic
+      - ./alembic.ini:/app/alembic.ini
 
-    # Override the default CMD to enable auto-reload on file changes.
+    # Apply pending migrations on startup, then run uvicorn with auto-reload.
     # Remove --reload for production deployments.
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    command: >
+      sh -c "alembic upgrade head &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
 
     restart: unless-stopped
 
@@ -42,7 +48,7 @@ services:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 30s
       timeout: 5s
-      start_period: 10s
+      start_period: 30s
       retries: 3
 
   redis:
@@ -64,7 +70,11 @@ services:
     restart: unless-stopped
 
   postgres:
-    image: postgres:16-alpine
+    # pgvector/pgvector:pg16 ships the pgvector extension already compiled and
+    # is a drop-in superset of stock Postgres 16. Session 6 does NOT activate
+    # it (no ``CREATE EXTENSION vector``); Session 7 runs a follow-up migration
+    # that turns it on. Using this image now avoids recreating the container.
+    image: pgvector/pgvector:pg16
     container_name: estimator-postgres
     environment:
       POSTGRES_USER: postgres

@@ -1961,6 +1961,42 @@ tocar dos piezas. Ambos están documentados en `evals/stress/REPORT.md` (secció
 
 ---
 
+## 20. Calidad del dato e ingesta — sesión 6 en vivo
+
+El Módulo 3 (RAG) no empieza por embeddings: empieza por los **datos**. Todo el
+código nuevo vive en `app/ingestion/` (+ `app/persistence/` y `routers/ingestion.py`).
+Cuatro artículos → cuatro sub-bloques. Detalle completo en
+[`session-06-ingesta.md`](session-06-ingesta.md); aquí el mapa rápido:
+
+- **`ingestion/architecture.py`** — CLI (`python -m app.ingestion.architecture`).
+  `CAGViability` (4 restricciones en `all([...])`) y `recommend_architecture`
+  (4 ejes). El Proyecto 2 → `RAG`. No va en el path HTTP.
+- **`ingestion/catalog/`** + `data/catalog/catalog.yaml` — el catálogo es código
+  Pydantic versionado. Decisión `include/review/exclude` por fuente (las dos
+  últimas exigen razón). `inspect.py` da *facts*; el YAML da *opiniones*.
+- **`ingestion/documents/` + `loaders/` + `parsers/` + `orchestrator.py`** — el
+  contrato canónico `Document` (plano: `id`, `text`, `metadata.extra`). Loaders
+  dan bytes, parsers dan `Document` (solo JSON + TXT registrados; XLSX/DOCX/PDF
+  son instructor-only). El orquestador respeta la `decision` y actualiza
+  `ingestion_jobs`.
+- **`ingestion/cleaning/`** — `clean_budget_records` (pandas: nulos, moneda,
+  fechas, dedup por hash con regla de negocio) + `validate_with_policy` (Pandera
+  `lazy=True` → valid/cuarentena/descarte).
+- **`ingestion/pii/`** — `ConsistentPseudonymizer`: Presidio(`es_core_news_md`) +
+  recognizers `BUDGET_ID`/`CLIENT_CODE` + Faker. Mismo valor → mismo pseudónimo;
+  a la BD va el HMAC, no el texto (Art. 17 auditable). `PostgresMappingStore` /
+  `InMemoryMappingStore`.
+- **`app/persistence/` + `alembic/`** — engine SQLAlchemy 2.0 sobre **nuestro
+  único Postgres** (psycopg2); Alembic gestiona solo `pseudonym_mappings` +
+  `ingestion_jobs`; las tablas de sesión 5 siguen con `db.py`/`_ensure_columns`.
+- **`routers/ingestion.py`** — `POST /api/v1/ingestion/runs` (202 + job, dispara
+  un BackgroundTask) y `GET /api/v1/ingestion/jobs/{id}`.
+
+Divergencias vs el profesor: 1 Postgres en vez de 2, driver psycopg2, sin
+`unstructured`, Angular intacto. La telemetría que tocó `services/estimation.py`
+en esta sesión ya la teníamos del stress test (§19). Verificado: 227 tests, ruff
+limpio, `import app.main` OK.
+
 ## Resumen en una página
 
 | Pieza | Archivo | Responsabilidad |
