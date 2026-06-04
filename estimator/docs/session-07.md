@@ -85,12 +85,13 @@ estimator/
 │   │   ├── schemas.py             ← modelos Pydantic v2
 │   │   ├── chunker.py             ← JSONStructuralChunker
 │   │   ├── embedder.py            ← OpenAIEmbedder
-│   │   ├── router.py              ← POST /embeddings/ingest
-│   │   └── SANITY_CHECK.md        ← resultados de las 3 parejas
+│   │   └── router.py              ← POST /embeddings/ingest
 │   ├── dependencies.py            ← + get_openai_embedder()
 │   └── main.py                    ← + include_router(embeddings.router)
 ├── scripts/
-│   └── compare.py                 ← NUEVO (CLI similitud coseno)
+│   └── embedding/                 ← NUEVO
+│       ├── compare.py             ← CLI similitud coseno
+│       └── SANITY_CHECK.md        ← resultados de las 3 parejas
 ├── data/
 │   └── budgets_sample.json        ← NUEVO (15 presupuestos, creado a mano)
 └── pyproject.toml                 ← + tiktoken
@@ -215,17 +216,17 @@ logs); **503** si no hay `OPENAI_API_KEY` configurada (los embeddings no tienen 
 offline). El embedder se inyecta vía `get_openai_embedder()` en `app/dependencies.py`. El
 router se registra en `app/main.py`. Verificable en `/docs` (Swagger UI).
 
-## 9. `compare.py` — similitud coseno (`scripts/compare.py`)
+## 9. `compare.py` — similitud coseno (`scripts/embedding/compare.py`)
 
 CLI con `argparse` (`--text-a`, `--text-b`). Reutiliza `OpenAIEmbedder`. Coseno a mano. Se
 puede ejecutar de dos formas (ambas documentadas en el README):
 
 ```bash
 # Dentro del contenedor
-docker compose exec estimator python scripts/compare.py --text-a "..." --text-b "..."
+docker compose exec estimator python scripts/embedding/compare.py --text-a "..." --text-b "..."
 
 # Fuera del contenedor (con estimator/.env cargado y una OPENAI_API_KEY con saldo)
-uv run python scripts/compare.py --text-a "..." --text-b "..."
+uv run python scripts/embedding/compare.py --text-a "..." --text-b "..."
 ```
 
 Salida (formato libre):
@@ -239,7 +240,7 @@ Cosine similarity: 0.8421
 ## 10. Validación con tres parejas (`SANITY_CHECK.md`)
 
 Se ejecuta `compare.py` sobre exactamente tres parejas y se guardan los resultados en
-[`app/embedding_pipeline/SANITY_CHECK.md`](../app/embedding_pipeline/SANITY_CHECK.md):
+[`scripts/embedding/SANITY_CHECK.md`](../scripts/embedding/SANITY_CHECK.md):
 
 - **Pareja A — cercanas** (esperado alto, ≳ 0.6): OAuth/JWT fintech ↔ "Authorization service
   using JSON Web Tokens for a banking application".
@@ -305,7 +306,7 @@ los tres cosenos están en §10 y en `SANITY_CHECK.md`.
 
 - ✅ Módulo `embedding_pipeline/` completo (`chunker.py`, `embedder.py`, `schemas.py`,
   `router.py`, `__init__.py`).
-- ✅ Script `scripts/compare.py` funcional.
+- ✅ Script `scripts/embedding/compare.py` funcional.
 - ✅ Endpoint `POST /embeddings/ingest` registrado y accesible desde `/docs`.
 - ✅ `SANITY_CHECK.md` con las tres parejas, los cosenos reales (0.5957 / 0.1920 / 0.5407) y
   el comentario.

@@ -200,18 +200,18 @@ hit *Execute*.
 
 ```bash
 # Inside the container
-docker compose exec estimator python scripts/compare.py \
+docker compose exec estimator python scripts/embedding/compare.py \
   --text-a "OAuth 2.0 authentication backend for fintech" \
   --text-b "JWT-based authorization service for banking app"
 
 # Outside the container (estimator/.env must hold a funded OPENAI_API_KEY)
-uv run python scripts/compare.py \
+uv run python scripts/embedding/compare.py \
   --text-a "OAuth 2.0 authentication backend for fintech" \
   --text-b "JWT-based authorization service for banking app"
 ```
 
 The three-pair sanity check lives in
-[`app/embedding_pipeline/SANITY_CHECK.md`](app/embedding_pipeline/SANITY_CHECK.md).
+[`scripts/embedding/SANITY_CHECK.md`](scripts/embedding/SANITY_CHECK.md).
 
 ### Template tests
 

@@ -5,7 +5,7 @@ that the pipeline runs end-to-end and that the embeddings discriminate
 reasonably between semantically close and far texts.
 
 Model: `text-embedding-3-small` (1536 dims). Similarity: cosine, computed by
-hand in [`scripts/compare.py`](../../scripts/compare.py).
+hand in [`compare.py`](compare.py) (same folder).
 
 ## Results
 
@@ -21,22 +21,22 @@ Observed order: **A (0.60) > C (0.54) > B (0.19)**.
 
 ```bash
 # Pair A — semantically close (expect high)
-uv run python scripts/compare.py \
+uv run python scripts/embedding/compare.py \
   --text-a "OAuth 2.0 authentication backend with JWT tokens for fintech mobile app" \
   --text-b "Authorization service using JSON Web Tokens for a banking application"
 
 # Pair B — unrelated (expect low)
-uv run python scripts/compare.py \
+uv run python scripts/embedding/compare.py \
   --text-a "OAuth 2.0 authentication backend with JWT tokens for fintech mobile app" \
   --text-b "Database migration from MySQL to PostgreSQL with zero downtime"
 
 # Pair C — generic / ambiguous (no fixed expectation)
-uv run python scripts/compare.py \
+uv run python scripts/embedding/compare.py \
   --text-a "Backend services" \
   --text-b "API development"
 ```
 
-(Equivalently inside Docker: `docker compose exec estimator python scripts/compare.py --text-a "..." --text-b "..."`.)
+(Equivalently inside Docker: `docker compose exec estimator python scripts/embedding/compare.py --text-a "..." --text-b "..."`.)
 
 ## Comentario
 

@@ -5,12 +5,12 @@ Reuses the project's ``OpenAIEmbedder``. Cosine similarity is computed by hand
 with the standard library only — no numpy, no scikit-learn.
 
 Run inside the container:
-    docker compose exec estimator python scripts/compare.py \\
+    docker compose exec estimator python scripts/embedding/compare.py \\
         --text-a "OAuth 2.0 authentication backend for fintech" \\
         --text-b "JWT-based authorization service for banking app"
 
 Run outside the container (with estimator/.env loaded):
-    uv run python scripts/compare.py \\
+    uv run python scripts/embedding/compare.py \\
         --text-a "..." --text-b "..."
 """
 from __future__ import annotations
@@ -20,9 +20,10 @@ import math
 import sys
 from pathlib import Path
 
-# Make ``app`` importable whether invoked as ``python scripts/compare.py`` from
-# the project root or from the scripts/ directory.
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+# Make ``app`` importable regardless of the working directory. This file lives
+# at estimator/scripts/embedding/compare.py, so the project root (estimator/,
+# which contains the ``app`` package) is three levels up.
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from openai import OpenAI  # noqa: E402
