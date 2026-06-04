@@ -1,5 +1,60 @@
 # Sesión 6 (en vivo) — Calidad del dato, decisiones de arquitectura e ingesta 🔴
 
+## En lenguaje llano (para cualquiera)
+
+**El objetivo de la sesión.** Estamos construyendo un asistente que estima
+cuánto cuesta y cuánto dura un proyecto software, basándose en el histórico de
+la empresa: presupuestos antiguos, transcripciones de reuniones, tarifas. Para
+acertar, ese asistente tiene que "leerse" esos documentos. Pero la sesión **no
+va de enseñar a la IA a leer**, sino del paso previo que casi todo el mundo se
+salta: **revisar, ordenar, limpiar y proteger esos documentos *antes* de
+dárselos a la IA**. Es el equivalente a que, antes de pedirle un informe a un
+consultor nuevo, alguien se siente a hacer inventario de qué papeles hay en el
+archivo, tire los que están obsoletos, corrija las incoherencias y tache los
+datos personales.
+
+**Por qué importa tanto.** Una IA no inventa información: recupera la que le das
+y la presenta bien. Si lo que le das está duplicado, caducado o mal escrito, te
+devolverá un error… pero con apariencia de respuesta segura y autorizada. Y eso
+es peor que no responder, porque nadie lo detecta hasta meses después. El lema
+de la sesión: *ningún truco posterior arregla unos datos malos de origen*.
+
+**La decisión grande de la sesión.** ¿Le metemos a la IA *todo* el archivo de la
+empresa en su "memoria" cada vez que le preguntamos (lo que veníamos haciendo,
+se llama CAG), o montamos un buscador que le pase *solo* los fragmentos
+relevantes (lo que se llama RAG)? Analizando cuatro criterios —tamaño del
+archivo, cada cuánto cambia, si hay que citar la fuente, y si hay datos
+confidenciales— la respuesta para nuestro caso es **RAG** (con una pequeña parte
+estable que sigue en CAG). Esta sesión construye los **cimientos** de ese RAG;
+la búsqueda y los "embeddings" llegan en la sesión siguiente.
+
+**Qué se ha hecho, en cristiano.** Cinco piezas, en orden:
+
+1. **Un inventario revisado de las fuentes** (un "catálogo"): una lista, guardada
+   junto al código, que dice qué fuentes existen, en qué estado están y, sobre
+   todo, cuáles **sí** se usan y cuáles **no** (y por qué se descarta cada una —
+   por ejemplo, una tarifa de 2024 obsoleta queda fuera *a propósito*).
+2. **Un traductor universal**: cada documento (un presupuesto en JSON, una
+   transcripción en texto) se convierte a un formato común para que el resto del
+   sistema lo trate igual, venga de donde venga.
+3. **Una limpieza**: arregla fechas escritas de mil formas, unifica monedas
+   (`eur`/`€`/`EUR` → `EUR`), descarta importes imposibles (uno negativo de
+   −50.000 €), elimina duplicados quedándose con la versión más reciente, y
+   aparta los registros dudosos en una "cuarentena" para revisión humana.
+4. **Un anonimizador (RGPD)**: detecta nombres, emails e identificadores de
+   cliente y los sustituye por alias **consistentes** (el mismo nombre siempre se
+   convierte en el mismo alias) y **reversibles**, de forma que se cumple el
+   "derecho al olvido" sin haber guardado nunca el dato original en claro.
+5. **Un botón para lanzarlo y seguirlo**: una petición arranca el proceso para
+   una fuente y otra consulta cómo va (pendiente → en curso → terminado).
+
+**Resultado.** Todo lo anterior queda montado, probado y funcionando: **227
+pruebas automáticas en verde** y las demos reproducen el comportamiento esperado
+(p. ej., de 6 presupuestos quedan 5 tras quitar duplicados, 3 válidos, 1 en
+cuarentena y 1 descartado). El resto del documento es el detalle técnico.
+
+---
+
 > Este documento cubre el **contenido principal** de la Sesión 6 (los 4 artículos
 > del módulo "datos"). El ejercicio *pre-sesión* (stress test del CAG) está en
 > [`session-06.md`](session-06.md); aquí empieza el Módulo 3 (RAG) construyendo
