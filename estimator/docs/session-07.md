@@ -44,11 +44,11 @@ frases**, las convierte en vectores y dice **cómo de parecidas** son (un númer
 Es el "test de humo": si dos frases que significan lo mismo dan un número alto, y dos que no
 tienen nada que ver dan un número bajo, sabemos que los embeddings funcionan.
 
-> ⚠️ **Una nota honesta:** la parte 4 (los números reales de similitud) quedó **pendiente**
-> porque la clave de OpenAI del `.env` está sin saldo (`429 insufficient_quota`). El código
-> funciona de punta a punta —se ha verificado el troceo, la validación y la ruta web—, pero
-> los tres números del *test de humo* hay que sacarlos con una clave con crédito. Una sola
-> orden los rellena (ver §10).
+> ✅ **Resultado del test de humo:** las tres parejas dan **A = 0.5957** (cercanas),
+> **B = 0.1920** (no relacionadas) y **C = 0.5407** (genéricas). Es decir **A > C > B**: el
+> pipeline funciona de punta a punta y los embeddings discriminan (A ≫ B con margen). Dos
+> cosas curiosas que dan juego: A se queda *justo* por debajo del 0.6 orientativo, y C —dos
+> etiquetas genéricas— sale casi tan alta como A (ver §10).
 
 ---
 
@@ -248,12 +248,22 @@ Se ejecuta `compare.py` sobre exactamente tres parejas y se guardan los resultad
 - **Pareja C — genéricas/ambiguas** (sin expectativa fija): "Backend services" ↔
   "API development".
 
-> **Estado:** los tres números quedan **pendientes**. La clave de OpenAI del `.env` devuelve
-> `429 insufficient_quota`, así que la API rechaza la petición antes de generar el vector.
-> Curiosamente, este mismo error **ejercitó el camino de reintentos** del embedder (3
-> backoffs y re-lanzado). Para rellenar la tabla: apuntar `.env` a una `OPENAI_API_KEY` con
-> saldo y relanzar las tres órdenes (están en `SANITY_CHECK.md`). El comentario sobre la
-> expectativa (A > C > B, o como mínimo A ≫ B) ya está escrito.
+**Resultados reales** (`SANITY_CHECK.md` tiene el detalle):
+
+| Pareja | Esperado | Coseno |
+|--------|----------|--------|
+| A — cercanas | alto (≳ 0.6) | **0.5957** |
+| B — no relacionadas | bajo (≲ 0.4) | **0.1920** |
+| C — genéricas | sin expectativa | **0.5407** |
+
+Orden observado **A > C > B**. Se cumple el mínimo del sanity check (**A ≫ B**: 0.60 vs 0.19,
+el embedding discrimina). Dos hallazgos para el directo: (1) A se queda *rozando por debajo*
+del 0.6 —el modelo capta los sinónimos (OAuth/JWT ↔ JSON Web Tokens, fintech ↔ banking) pero
+la reformulación completa no llega al umbral; el 0.6 es guía, no frontera dura—; y (2) **C ≈
+A**: dos etiquetas genéricas y cortas ("Backend services" vs "API development") dan casi la
+misma similitud que una pareja realmente sinónima, porque los textos cortos sin contexto
+colapsan hacia el mismo macro-dominio. Es justo el argumento del *contextual chunk header*:
+sin el contexto del padre, los chunks genéricos serían indistinguibles.
 
 ## 11. Datos de ejemplo (`data/budgets_sample.json`)
 
@@ -288,7 +298,8 @@ assert '/embeddings/ingest' in [r.path for r in app.routes]; print('route OK')"
 ```
 
 Resultado obtenido: `15 budgets 60 chunks` y `route OK`. La generación real de vectores y el
-sanity check numérico requieren una `OPENAI_API_KEY` con saldo (ver §10).
+sanity check numérico (que requieren una `OPENAI_API_KEY` con saldo) se ejecutaron con éxito;
+los tres cosenos están en §10 y en `SANITY_CHECK.md`.
 
 ## 14. Entregable
 
@@ -296,8 +307,8 @@ sanity check numérico requieren una `OPENAI_API_KEY` con saldo (ver §10).
   `router.py`, `__init__.py`).
 - ✅ Script `scripts/compare.py` funcional.
 - ✅ Endpoint `POST /embeddings/ingest` registrado y accesible desde `/docs`.
-- ✅ `SANITY_CHECK.md` con las tres parejas y el comentario (números pendientes de clave con
-  saldo).
+- ✅ `SANITY_CHECK.md` con las tres parejas, los cosenos reales (0.5957 / 0.1920 / 0.5407) y
+  el comentario.
 - ✅ README actualizado (cómo invocar el endpoint, cómo correr `compare.py` dentro y fuera
   del contenedor).
 - ✅ `pyproject.toml` actualizado (`tiktoken`).

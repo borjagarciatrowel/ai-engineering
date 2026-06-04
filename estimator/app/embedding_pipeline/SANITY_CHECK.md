@@ -11,18 +11,11 @@ hand in [`scripts/compare.py`](../../scripts/compare.py).
 
 | Pair | Expectation | Cosine similarity |
 |------|-------------|-------------------|
-| A — semantically close | high (≳ 0.6) | _pending funded key_ |
-| B — unrelated          | low (≲ 0.4)  | _pending funded key_ |
-| C — generic / ambiguous | no fixed expectation | _pending funded key_ |
+| A — semantically close | high (≳ 0.6) | **0.5957** |
+| B — unrelated          | low (≲ 0.4)  | **0.1920** |
+| C — generic / ambiguous | no fixed expectation | **0.5407** |
 
-> ⚠️ **Status of the numeric run.** The three numbers above were not captured
-> yet: the OpenAI key currently in `estimator/.env` returns
-> `429 insufficient_quota` (the embeddings API rejects the request before
-> producing a vector). The pipeline itself is verified — chunking, schema
-> validation and the FastAPI route all work, and the rate-limit retry path was
-> exercised by this very error. To fill the table, point `.env` at a funded
-> `OPENAI_API_KEY` and re-run the three commands below; the values drop straight
-> in.
+Observed order: **A (0.60) > C (0.54) > B (0.19)**.
 
 ## Commands (run exactly these three pairs)
 
@@ -45,21 +38,28 @@ uv run python scripts/compare.py \
 
 (Equivalently inside Docker: `docker compose exec estimator python scripts/compare.py --text-a "..." --text-b "..."`.)
 
-## Comentario (sobre la expectativa)
+## Comentario
 
-- **Pareja A** describe el mismo concepto con vocabulario distinto (OAuth/JWT
-  ↔ "JSON Web Tokens", fintech ↔ banking). Esperamos similitud alta: si saliera
-  baja, el modelo no estaría capturando sinónimos de dominio.
-- **Pareja B** enfrenta autenticación contra una migración de base de datos: dos
-  dominios sin solape. Esperamos similitud claramente menor que A; es el control
-  negativo que demuestra que el embedding sí discrimina.
-- **Pareja C** son dos etiquetas genéricas y cortas ("Backend services" vs
-  "API development"). Sin contexto, los textos muy cortos tienden a dar
-  similitudes medias-altas y poco informativas; es justo el caso interesante
-  para comentar en directo (qué pasa cuando el chunk no lleva contexto del
-  padre — exactamente lo que el *contextual chunk header* del chunker evita en
-  la pipeline real).
+- **Pareja A (0.5957)** — es, junto con C, la más alta, así que el modelo **sí**
+  capta que es la pareja más relacionada: reconoce los sinónimos de dominio
+  (OAuth/JWT ↔ "JSON Web Tokens", fintech ↔ banking). El detalle llamativo es
+  que se queda **justo por debajo** del 0.6 orientativo: la reformulación
+  completa con vocabulario distinto basta para no superar el umbral. Encaja con
+  la intuición, pero recuerda que ese 0.6 es una guía, no una frontera dura.
+- **Pareja B (0.1920)** — claramente baja, como se esperaba (≲ 0.4). Es el
+  control negativo que funciona: autenticación vs migración de base de datos no
+  comparten dominio y el embedding lo refleja. Aquí el pipeline discrimina bien.
+- **Pareja C (0.5407)** — **el resultado sorprendente**: dos etiquetas genéricas
+  y cortas ("Backend services" vs "API development"), que no son sinónimas, dan
+  una similitud casi tan alta como la pareja A. Es el efecto típico de los textos
+  muy cortos y vagos: sin contexto colapsan hacia el mismo macro-dominio
+  (desarrollo backend) y resultan poco discriminables. Es justo el argumento a
+  favor del *contextual chunk header* del chunker: sin el contexto del
+  presupuesto padre, los chunks genéricos se volverían indistinguibles entre sí.
 
-Cuando se rellenen los números, lo esperable es **A > C > B** o, como mínimo,
-**A > B** con un margen cómodo. Cualquier resultado que rompa eso (p. ej. B ≈ A)
-sería material de discusión para la sesión en vivo.
+**Conclusión:** se cumple **A ≫ B** con margen cómodo (0.60 vs 0.19), que es el
+mínimo que pide el sanity check. Los dos puntos de discusión para el directo:
+(1) A se queda rozando por debajo de 0.6, y (2) C ≈ A — una pareja genérica casi
+tan "parecida" como una realmente sinónima. Ambos refuerzan que la calidad del
+texto que se embebe (contexto, longitud, especificidad) importa tanto como el
+modelo.
