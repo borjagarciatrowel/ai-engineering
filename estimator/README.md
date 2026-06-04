@@ -113,6 +113,7 @@ Prompts live as files under `app/prompts/estimation/v1/`:
 - `GET  /sessions/{id}` → debug view (project_metadata + history length)
 - `GET  /sessions/{id}/conversation` → full turn-by-turn history (used by the detail view)
 - `POST /sessions/{id}/estimate` → one conversational turn (`multipart/form-data`)
+- `POST /embeddings/ingest` → chunk + vectorise budgets → `IngestResponse` (Session 7)
 
 ### Conversational memory & attachments (Session 5)
 
@@ -155,6 +156,62 @@ See [`docs/cambios-sesion-05.md`](docs/cambios-sesion-05.md) for the full change
   *is* the conversational interface (turn thread + composer to add turns + live
   project_metadata panel). The separate chat page and the single-shot edit/run form were
   removed; legacy stateless estimations (no `session_id`) render read-only.
+
+### Embeddings + chunking pipeline (Session 7)
+
+A minimal end-to-end pipeline that turns normalised historical budgets (JSON)
+into embedding vectors. Lives in [`app/embedding_pipeline/`](app/embedding_pipeline/).
+See [`docs/session-07.md`](docs/session-07.md) for the full walkthrough.
+
+- **Chunking strategy — one component = one chunk.** `JSONStructuralChunker`
+  (`app/embedding_pipeline/chunker.py`) trusts the document structure: no
+  fixed-size or overlap splitting. Each chunk's embedded `text` is a *contextual
+  chunk header* (parent project, sector, year, main tech) followed by the
+  component detail, so a chunk never loses the trace of which client/sector it
+  belongs to. `token_count` is measured with `tiktoken` for the same model that
+  embeds the text, to flag oversized chunks before paying for an API call.
+- **Embedder — batched + retrying.** `OpenAIEmbedder`
+  (`app/embedding_pipeline/embedder.py`) embeds with `text-embedding-3-small`
+  (1536 dims), sends up to 100 chunks per `embeddings.create` call, retries
+  `RateLimitError` with 1s/2s/4s backoff and logs each batch via structlog. The
+  cost estimate uses a clearly labelled module constant ($0.02 / 1M input
+  tokens).
+- **Endpoint.** `POST /embeddings/ingest` (`app/embedding_pipeline/router.py`):
+  body is `{"budgets": [...]}`, response is the vectorised chunks plus aggregate
+  `stats` (`total_budgets`, `total_chunks`, `total_tokens`, `estimated_cost_usd`).
+  Visible and invokable from `/docs`. Sample input: [`data/budgets_sample.json`](data/budgets_sample.json).
+- **No persistence yet.** Vectors are generated in memory and returned over
+  HTTP. PostgreSQL + pgvector persistence arrives in Session 8.
+
+**Invoke the endpoint** (sample data):
+
+```bash
+# from estimator/, service running on :8000
+curl -s -X POST http://localhost:8000/embeddings/ingest \
+  -H "Content-Type: application/json" \
+  -d "{\"budgets\": $(cat data/budgets_sample.json)}" | python -m json.tool | head
+```
+
+…or open `http://localhost:8000/docs`, expand `POST /embeddings/ingest`, paste
+the contents of `data/budgets_sample.json` wrapped in `{"budgets": [...]}` and
+hit *Execute*.
+
+**`compare.py` — cosine similarity of two texts.** Two ways to run it:
+
+```bash
+# Inside the container
+docker compose exec estimator python scripts/compare.py \
+  --text-a "OAuth 2.0 authentication backend for fintech" \
+  --text-b "JWT-based authorization service for banking app"
+
+# Outside the container (estimator/.env must hold a funded OPENAI_API_KEY)
+uv run python scripts/compare.py \
+  --text-a "OAuth 2.0 authentication backend for fintech" \
+  --text-b "JWT-based authorization service for banking app"
+```
+
+The three-pair sanity check lives in
+[`app/embedding_pipeline/SANITY_CHECK.md`](app/embedding_pipeline/SANITY_CHECK.md).
 
 ### Template tests
 

@@ -43,6 +43,11 @@ dependencies = [
     # The Spanish spaCy model is not a PyPI dep; install it once with
     #   uv run python -m spacy download es_core_news_md
     # It is only needed at runtime (Presidio); unit tests stub the analyzer.
+    # Session 7 — embeddings + chunking pipeline.
+    # openai is already declared above (Session 1). tiktoken counts tokens with
+    # the same model that embeds the text, so we can flag oversized chunks before
+    # paying for an API call. No numpy/scikit-learn — cosine is done by hand.
+    "tiktoken>=0.7.0",
 ]
 
 [dependency-groups]

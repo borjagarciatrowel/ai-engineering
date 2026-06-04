@@ -6,12 +6,13 @@ from functools import lru_cache
 
 import redis
 import structlog
-from fastapi import Depends
+from fastapi import Depends, HTTPException
 from openai import OpenAI
 from sqlalchemy.orm import Session as SaSession
 
 from app.cache.semantic import EstimationSemanticCache
 from app.config import get_settings
+from app.embedding_pipeline.embedder import OpenAIEmbedder
 from app.db import get_db
 from app.ingestion.catalog import DataCatalog, load_catalog
 from app.ingestion.loaders.filesystem import FileSystemLoader
@@ -52,6 +53,23 @@ def get_openai_client() -> OpenAI | None:
     if not settings.OPENAI_API_KEY:
         return None
     return OpenAI(api_key=settings.OPENAI_API_KEY)
+
+
+def get_openai_embedder() -> OpenAIEmbedder:
+    """Build the Session-7 embedder from the shared OpenAI client.
+
+    Not cached: it is a thin wrapper over the (already cached) OpenAI client and
+    raising on a missing key must not be memoised. Returns HTTP 503 when no
+    OpenAI key is configured — embeddings have no offline fallback.
+    """
+    settings = get_settings()
+    client = get_openai_client()
+    if client is None:
+        raise HTTPException(
+            status_code=503,
+            detail="embeddings unavailable: OPENAI_API_KEY not configured",
+        )
+    return OpenAIEmbedder(client=client, model=settings.EMBEDDING_MODEL)
 
 
 @lru_cache
