@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     CACHE_TTL: int = 86400
 
     # --- Persistence (Postgres) ---
-    DATABASE_URL: str = "postgresql+psycopg2://postgres:postgres@localhost:5432/estimator"
+    DATABASE_URL: str = "postgresql+psycopg://postgres:postgres@localhost:5432/estimator"
 
     # --- Session 4 fields (semantic cache) ---
     EMBEDDING_MODEL: str = "text-embedding-3-small"

@@ -1,0 +1,52 @@
+Estimator API: http://127.0.0.1:8000
+Corpus: 15 budgets — 15 ingested, 0 already present.
+
+[1/5] Componente directo conocido (sanity check)
+    query: "REST API development with JWT authentication for financial sector"
+    search_time_ms: 234
+    chunk_id  distance  chunk_type          content
+           1    0.3985  budget_component    [Project: Mobile banking API with OAuth 2.0 authentication and instant payments] [Client sector: fintech | Year: 2024 | 
+           4    0.4717  budget_component    [Project: Mobile banking API with OAuth 2.0 authentication and instant payments] [Client sector: fintech | Year: 2024 | 
+           2    0.4794  budget_component    [Project: Mobile banking API with OAuth 2.0 authentication and instant payments] [Client sector: fintech | Year: 2024 | 
+          36    0.4883  budget_component    [Project: Retail investing app with portfolio analytics, market data and price alerts] [Client sector: fintech | Year: 2
+           3    0.5062  budget_component    [Project: Mobile banking API with OAuth 2.0 authentication and instant payments] [Client sector: fintech | Year: 2024 | 
+
+[2/5] Reformulación semántica (mismo concepto, otro vocabulario)
+    query: "secure backend service with token-based access control for banking applications"
+    search_time_ms: 181
+    chunk_id  distance  chunk_type          content
+           1    0.4446  budget_component    [Project: Mobile banking API with OAuth 2.0 authentication and instant payments] [Client sector: fintech | Year: 2024 | 
+           4    0.4747  budget_component    [Project: Mobile banking API with OAuth 2.0 authentication and instant payments] [Client sector: fintech | Year: 2024 | 
+          36    0.5114  budget_component    [Project: Retail investing app with portfolio analytics, market data and price alerts] [Client sector: fintech | Year: 2
+           2    0.5124  budget_component    [Project: Mobile banking API with OAuth 2.0 authentication and instant payments] [Client sector: fintech | Year: 2024 | 
+           3    0.5527  budget_component    [Project: Mobile banking API with OAuth 2.0 authentication and instant payments] [Client sector: fintech | Year: 2024 | 
+
+[3/5] Dominio distinto (no debería estar en el corpus)
+    query: "mobile application for restaurant reservations"
+    search_time_ms: 277
+    chunk_id  distance  chunk_type          content
+          23    0.5974  budget_component    [Project: Online grocery store with delivery slot scheduling and loyalty programme] [Client sector: e-commerce | Year: 2
+          39    0.6070  budget_component    [Project: Cross-platform fashion shopping app with recommendations and mobile wallets] [Client sector: e-commerce | Year
+          10    0.6087  budget_component    [Project: Electronic health record platform with appointment scheduling and FHIR interoperability] [Client sector: healt
+           3    0.6092  budget_component    [Project: Mobile banking API with OAuth 2.0 authentication and instant payments] [Client sector: fintech | Year: 2024 | 
+          37    0.6099  budget_component    [Project: Cross-platform fashion shopping app with recommendations and mobile wallets] [Client sector: e-commerce | Year
+
+[4/5] Consulta ambigua (sin match dominante)
+    query: "integration with external system"
+    search_time_ms: 227
+    chunk_id  distance  chunk_type          content
+          31    0.5896  budget_component    [Project: Smart factory quality control with PLC connectivity and machine vision] [Client sector: industrial | Year: 202
+          32    0.5981  budget_component    [Project: Smart factory quality control with PLC connectivity and machine vision] [Client sector: industrial | Year: 202
+          29    0.6027  budget_component    [Project: Smart factory quality control with PLC connectivity and machine vision] [Client sector: industrial | Year: 202
+          58    0.6059  budget_component    [Project: Multi-clinic SaaS with scheduling, lab integration and GDPR consent management] [Client sector: healthcare | Y
+           2    0.6093  budget_component    [Project: Mobile banking API with OAuth 2.0 authentication and instant payments] [Client sector: fintech | Year: 2024 | 
+
+[5/5] Consulta muy específica (vocabulario técnico preciso)
+    query: "migration from monolith to microservices architecture using Kubernetes"
+    search_time_ms: 177
+    chunk_id  distance  chunk_type          content
+          53    0.3707  budget_component    [Project: Migration of a monolithic marketplace to microservices with a GraphQL gateway] [Client sector: e-commerce | Ye
+          56    0.4411  budget_component    [Project: Migration of a monolithic marketplace to microservices with a GraphQL gateway] [Client sector: e-commerce | Ye
+          54    0.4781  budget_component    [Project: Migration of a monolithic marketplace to microservices with a GraphQL gateway] [Client sector: e-commerce | Ye
+          55    0.5214  budget_component    [Project: Migration of a monolithic marketplace to microservices with a GraphQL gateway] [Client sector: e-commerce | Ye
+          13    0.6099  budget_component    [Project: Industrial IoT platform for SCADA telemetry, predictive maintenance and shop-floor execution] [Client sector: 

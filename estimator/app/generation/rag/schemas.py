@@ -1,4 +1,4 @@
-"""Pydantic v2 schemas for the embedding pipeline (Session 7).
+"""Pydantic v2 schemas for the embedding pipeline (Sessions 7 + 8).
 
 These models describe three things:
 
@@ -6,8 +6,13 @@ These models describe three things:
    the normalised historical budgets produced in Session 6.
 2. The **intermediate** unit of work (`Chunk`) and its vectorised form
    (`EmbeddedChunk`) — what the chunker emits and the embedder enriches.
-3. The **HTTP contract** (`IngestRequest`, `IngestResponse`, `IngestStats`) of
-   ``POST /embeddings/ingest``.
+3. The **HTTP contract** of the persisting pipeline (Session 8):
+   ``POST /embeddings/ingest`` (`IngestRequest` / `IngestResponse`) and
+   ``POST /search`` (`SearchRequest` / `SearchResponse` / `SearchHit`).
+
+Session 8 changed the ingest contract: ``/embeddings/ingest`` no longer returns
+chunks+vectors over HTTP. It persists one document plus its embedded chunks in
+pgvector and returns only identifiers and metrics; the vectors live in the DB.
 
 All names are in English to stay consistent with the rest of the codebase, and
 validators are explicit where the universe of values is known (``complexity``).
@@ -88,27 +93,62 @@ class EmbeddedChunk(Chunk):
 
 
 # --------------------------------------------------------------------------- #
-# HTTP contract
+# HTTP contract — Session 8 (persisting ingest + semantic search)
 # --------------------------------------------------------------------------- #
 class IngestRequest(BaseModel):
-    """Body of ``POST /embeddings/ingest``."""
+    """Payload for ``POST /embeddings/ingest`` (Session 8: persisting contract).
+
+    One request = one document. ``content`` is the full budget JSON, validated
+    against :class:`Budget` so a malformed corpus fails with a 422 before
+    touching the database or the embeddings API.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
-    budgets: list[Budget] = Field(min_length=1)
-
-
-class IngestStats(BaseModel):
-    """Aggregated statistics returned alongside the vectorised chunks."""
-
-    total_budgets: int
-    total_chunks: int
-    total_tokens: int
-    estimated_cost_usd: float
+    source_path: str = Field(
+        min_length=1, description="Provenance of the document, unique per ingest."
+    )
+    document_type: str = Field(
+        min_length=1, max_length=50, description="Document family, e.g. 'historical_budget'."
+    )
+    content: Budget = Field(description="Full budget JSON, as produced upstream.")
 
 
 class IngestResponse(BaseModel):
-    """Response of ``POST /embeddings/ingest`` (HTTP 200)."""
+    """Response for ``POST /embeddings/ingest``: identifiers + ingest metrics.
 
-    chunks: list[EmbeddedChunk]
-    stats: IngestStats
+    Vectors no longer travel over HTTP — they are persisted in pgvector.
+    """
+
+    document_id: int = Field(description="Primary key of the persisted document.")
+    chunks_created: int = Field(ge=0, description="Chunks persisted for this document.")
+    embedding_dimension: int = Field(description="Dimensionality of the stored vectors.")
+    ingestion_time_ms: int = Field(ge=0, description="Wall-clock ingest time.")
+
+
+class SearchRequest(BaseModel):
+    """Payload for ``POST /search``."""
+
+    query: str = Field(min_length=1, description="Free-text semantic query.")
+    k: int = Field(default=5, ge=1, le=50, description="Number of nearest chunks to return.")
+
+
+class SearchHit(BaseModel):
+    """One ranked chunk. ``chunk_id`` is the DB primary key; the traceable
+    corpus id ('BUD-X::COMP-Y' parts) travels inside ``metadata``."""
+
+    chunk_id: int
+    document_id: int
+    chunk_type: str
+    content: str
+    distance: float = Field(description="Cosine distance (lower = more similar).")
+    metadata: dict
+
+
+class SearchResponse(BaseModel):
+    """Response for ``POST /search``."""
+
+    query: str
+    k: int
+    search_time_ms: int = Field(ge=0)
+    results: list[SearchHit]

@@ -16,7 +16,7 @@ services:
     # (redis://localhost:6379) is meant for running uvicorn outside Docker.
     environment:
       REDIS_URL: redis://redis:6379
-      DATABASE_URL: postgresql+psycopg2://postgres:postgres@postgres:5432/estimator
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@postgres:5432/estimator
 
     depends_on:
       redis:

@@ -18,7 +18,7 @@ dependencies = [
     "redis>=5.0",
     "redisvl>=0.3",
     "sqlalchemy>=2.0",
-    "psycopg2-binary>=2.9",
+    "psycopg[binary]>=3.1",
     "httpx>=0.27",
     "jinja2>=3.1",
     "python-multipart>=0.0.9",
@@ -26,9 +26,9 @@ dependencies = [
     "python-docx>=1.1",
     "fpdf2>=2.7",
     # Session 6 — data-driven AI (ingestion, cleaning, PII).
-    # sqlalchemy + psycopg2-binary are already declared above (Session 5
-    # persistence). We keep psycopg2 (our driver) rather than the professor's
-    # psycopg v3. alembic manages only the two new Session-6 tables.
+    # sqlalchemy + psycopg[binary] (psycopg v3) are already declared above
+    # (Session 5 persistence) — aligned with the professor's driver. alembic
+    # manages only the two new Session-6 tables.
     # NOTE: unstructured[all-docs] is deliberately NOT added — the XLSX/DOCX/PDF
     # parsers that would use it ship only in the instructor's guides/, not here.
     "pandas>=2.2",
@@ -54,6 +54,16 @@ dependencies = [
     "langchain-experimental>=0.3.0",
     "langchain-openai>=0.2.0",
     "nltk>=3.9",
+    # Session 8 — pgvector persistence + semantic search.
+    # asyncpg is the async driver SQLAlchemy 2.0 recommends for the hot-path
+    # RAG endpoints (POST /embeddings/ingest, POST /search); the sync psycopg
+    # (v3) driver above still backs Alembic and the Session-6 repositories. pgvector
+    # registers the ``vector`` column type and the cosine_distance operator.
+    "asyncpg>=0.29",
+    "pgvector>=0.3",
+    # SQLAlchemy's async engine bridges sync/async via greenlet; it is an
+    # optional dep that does not come in transitively with the bare driver.
+    "greenlet>=3.0",
 ]
 
 [dependency-groups]

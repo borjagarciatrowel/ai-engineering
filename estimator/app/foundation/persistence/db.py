@@ -41,7 +41,8 @@ def get_engine() -> Engine:
 
 def create_all() -> None:
     # Import models so they register on Base.metadata before create_all.
-    from app import db_models  # noqa: F401
+    # (Path is app.foundation.persistence.db_models since the S7 restructure.)
+    from app.foundation.persistence import db_models  # noqa: F401
 
     engine, _ = _init()
     Base.metadata.create_all(engine)

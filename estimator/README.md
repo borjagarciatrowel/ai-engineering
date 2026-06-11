@@ -113,7 +113,8 @@ Prompts live as files under `app/prompts/estimation/v1/`:
 - `GET  /sessions/{id}` → debug view (project_metadata + history length)
 - `GET  /sessions/{id}/conversation` → full turn-by-turn history (used by the detail view)
 - `POST /sessions/{id}/estimate` → one conversational turn (`multipart/form-data`)
-- `POST /embeddings/ingest` → chunk + vectorise budgets → `IngestResponse` (Session 7)
+- `POST /embeddings/ingest` → chunk + embed **+ persist** one budget as a `document` + its `chunks` (one transaction) → `IngestResponse` (`document_id`, `chunks_created`, `embedding_dimension`, `ingestion_time_ms`); **409** if a document with that `source_path` already exists (Session 8)
+- `POST /search` → embed the query, return the **k nearest chunks by cosine distance** over the persisted corpus (Session 8)
 
 ### Conversational memory & attachments (Session 5)
 
@@ -222,3 +223,51 @@ The three-pair sanity check lives in
 - `detail_level=detailed` adds the "list assumptions per phase" instruction; `summary` does not.
 - The `{% include "examples.j2" %}` is wired up.
 - Unknown versions raise.
+
+### pgvector persistence + semantic search (Session 8)
+
+The Session 7 pipeline stopped at "generate vectors in memory and return them over HTTP".
+Session 8 **persists** the corpus in PostgreSQL + `pgvector` and exposes semantic search.
+`POST /embeddings/ingest` now stores one budget as a `document` plus its embedded `chunks`
+in a single transaction (409 on duplicate `source_path`); `POST /search` returns the *k*
+nearest chunks by cosine distance. Full walkthrough in
+[`docs/session-08.md`](docs/session-08.md); annotated code in
+[`docs/codigo-explicado.md`](docs/codigo-explicado.md) §22.
+
+Run the smoke test against the bundled corpus (15 budgets) and capture the output:
+
+```bash
+docker compose up -d                                    # postgres + estimator (alembic runs on boot)
+docker compose run --rm estimator python scripts/query_examples.py | tee output_examples.txt
+```
+
+The committed [`output_examples.txt`](output_examples.txt) is a real run over
+`data/budgets_sample.json`.
+
+**Four schema decisions (the ones the exercise asks us to defend):**
+
+1. **Two tables, not one.** A budget produces N chunks. A single flat table would duplicate
+   every document-level field (source, type, sector, year) on each chunk row and lose
+   referential integrity. `documents` (1) → `chunks` (N) with `ON DELETE CASCADE` means
+   deleting a budget removes its chunks automatically — integrity instead of denormalised
+   duplication.
+
+2. **`metadata` as `JSONB`, not columns.** Stable, queried-by-everyone fields
+   (`document_type`, `chunk_type`, timestamps) are typed columns. The *open-ended*
+   enrichment the chunker attaches (sector, technologies, hours, scope…) lives in a `JSONB`
+   column with a **GIN index**, so we can filter by an arbitrary key
+   (`metadata->>'client_sector' = 'fintech'`) **without a migration per new key**. Schema
+   stability where it matters, flexibility where the vocabulary is still moving.
+
+3. **`cosine_distance` (`<=>`), not L2 or inner product.** OpenAI embeddings are normalised,
+   so cosine / inner-product would rank identically — but cosine is the RAG-literature
+   convention **and** it matches the `vector_cosine_ops` operator class of the HNSW index we
+   add live. If the query operator and the index's operator class disagree, Postgres
+   **silently ignores the index** and falls back to a sequential scan. Picking cosine now
+   keeps that door open.
+
+4. **No vector index — on purpose (yet).** The migration creates the relational indexes
+   (FK, `chunk_type`, GIN on metadata) but **no HNSW/IVFFlat**. The sequential scan is the
+   **baseline** the live session measures the index against. At this corpus size (tens of
+   documents, dozens of chunks) a seq-scan answers in a few hundred ms — perfectly fine, and
+   observing that latency *without* an index is one of the live session's starting points.

@@ -169,9 +169,9 @@ desvíos; todos **encajan dentro del contrato de capas** anterior (no lo rompen)
    `estimator-web/` del oficial. El contrato HTTP es idéntico; la pestaña "Ajustes" que
    consume `/api/v1/config/models` aún no está portada a Angular (la sesión la añadió en Rails).
 
-Detalles menores: usamos `psycopg2` (no `psycopg` v3) y el wrapper captura *token usage* y
-coste también en las llamadas estructuradas (`create_with_completion`), telemetría que el
-oficial no recoge en ese camino.
+Detalles menores: el wrapper captura *token usage* y coste también en las llamadas
+estructuradas (`create_with_completion`), telemetría que el oficial no recoge en ese camino.
+(El driver síncrono se alineó con el oficial en `psycopg` v3 en la Sesión 8.)
 
 > **Consecuencia para el endpoint de config (S7 live):** el switch de modelo en runtime aplica
 > a `PRIMARY_MODEL`/`FALLBACK_MODEL` (vía propiedades del wrapper), a los chunkers

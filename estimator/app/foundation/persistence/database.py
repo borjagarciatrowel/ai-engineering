@@ -1,21 +1,34 @@
-"""SQLAlchemy engine, session factory and per-request session helpers.
+"""SQLAlchemy engines, session factories and per-request session helpers.
 
-We use the *synchronous* SQLAlchemy 2.0 API. The ingestion paths in this module
-are not on the hot user request path — they run as BackgroundTasks or one-shot
-admin operations — so we trade async ergonomics for simplicity and less
-moving infrastructure during teaching.
+Two stacks coexist on purpose:
 
-Divergence from the professor's reference: this engine reads our existing
-``Settings.DATABASE_URL`` (psycopg2 driver, single ``postgres`` service) instead
-of a second pgvector Postgres on port 5433. ``app.db`` (the Session-5 session
-store) keeps its own engine; both point at the same database.
+* **Sync (psycopg v3)** — the Session 6 ingestion paths (pseudonym mappings,
+  ingestion jobs). They are not on the hot user request path (BackgroundTasks /
+  one-shot admin operations), so we trade async ergonomics for simplicity and
+  less moving infrastructure during teaching.
+* **Async (asyncpg)** — the Session 8 RAG store (``POST /embeddings/ingest``
+  and ``POST /search``). Those endpoints ARE on the real-time request path, so
+  they use the async engine and never block the event loop on Postgres I/O.
+
+Both engines read the same ``Settings.DATABASE_URL``; the async one swaps the
+driver token, so a single env var configures the whole service.
+
+Aligned with the professor's reference on the driver: the canonical URL uses the
+**psycopg v3** sync driver (``postgresql+psycopg://``), and the async stack swaps
+the driver token to ``+asyncpg``. The only remaining divergence is
+infrastructural, not driver-level — we point at a **single** ``postgres`` service
+(port 5432) instead of a dedicated pgvector Postgres on 5433.
+``app.foundation.persistence.db`` (the Session-5 session store) keeps its own
+engine; everything points at the same database.
 """
+
 from __future__ import annotations
 
 from collections.abc import Iterator
 from functools import lru_cache
 
 from sqlalchemy import Engine, create_engine
+from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import get_settings
@@ -23,7 +36,7 @@ from app.config import get_settings
 
 @lru_cache
 def create_engine_from_settings() -> Engine:
-    """Build the global engine from ``Settings.DATABASE_URL`` (singleton)."""
+    """Build the global sync engine from ``Settings.DATABASE_URL`` (singleton)."""
     return create_engine(
         get_settings().DATABASE_URL,
         pool_pre_ping=True,
@@ -41,9 +54,49 @@ SessionLocal = sessionmaker(
 
 
 def get_session() -> Iterator[Session]:
-    """FastAPI dependency that yields a Session and closes it on exit."""
+    """FastAPI dependency that yields a sync Session and closes it on exit."""
     session = SessionLocal()
     try:
         yield session
     finally:
         session.close()
+
+
+# --------------------------------------------------------------------------- #
+# Async stack (Session 8 — RAG store on the hot request path)
+# --------------------------------------------------------------------------- #
+def _async_database_url() -> str:
+    """Derive the asyncpg URL from ``Settings.DATABASE_URL``.
+
+    The canonical URL uses the sync psycopg (v3) driver (``postgresql+psycopg://``)
+    because Alembic and the Session 6 repositories run synchronously. The RAG
+    store swaps the driver token to ``+asyncpg`` instead of introducing a second
+    env var (same logic as the professor's reference).
+    """
+    url = get_settings().DATABASE_URL
+    if "+psycopg" in url:
+        return url.replace("+psycopg", "+asyncpg")
+    if url.startswith("postgresql://"):
+        return url.replace("postgresql://", "postgresql+asyncpg://", 1)
+    return url
+
+
+@lru_cache
+def create_async_engine_from_settings() -> AsyncEngine:
+    """Build the global async engine for the RAG store (singleton)."""
+    return create_async_engine(
+        _async_database_url(),
+        pool_pre_ping=True,
+    )
+
+
+@lru_cache
+def get_async_session_factory() -> async_sessionmaker:
+    """Session factory for the async stack. ``expire_on_commit=False`` so ORM
+    objects (e.g. the freshly persisted document id) stay readable after the
+    transaction commits."""
+    return async_sessionmaker(
+        bind=create_async_engine_from_settings(),
+        autoflush=False,
+        expire_on_commit=False,
+    )

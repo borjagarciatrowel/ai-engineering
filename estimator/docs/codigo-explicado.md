@@ -41,6 +41,7 @@ Cuando lleguemos a una pieza, todas sus dependencias ya estarán explicadas.
 19. [Stress test del CAG: medir dónde rompe — sesión 6 (`evals/stress/`)](#19-stress-test-del-cag-medir-dónde-rompe--sesión-6)
 20. [Calidad del dato e ingesta — sesión 6 en vivo](#20-calidad-del-dato-e-ingesta--sesión-6-en-vivo)
 21. [Arquitectura por capas, laboratorio de chunking y modelo en caliente — sesión 7 en vivo](#21-arquitectura-por-capas-laboratorio-de-chunking-y-modelo-en-caliente--sesión-7-en-vivo)
+22. [Persistencia en pgvector y búsqueda semántica — sesión 8 (`generation/rag/store/`, `api/search.py`)](#22-persistencia-en-pgvector-y-búsqueda-semántica--sesión-8)
 
 ---
 
@@ -192,7 +193,7 @@ class Settings(BaseSettings):
     PRIMARY_MODEL: str = "gpt-4o-mini"
     FALLBACK_MODEL: str = "claude-haiku-4-5-20251001"
     REDIS_URL: str = "redis://localhost:6379"
-    DATABASE_URL: str = "postgresql+psycopg2://..."
+    DATABASE_URL: str = "postgresql+psycopg://..."
     SEMANTIC_CACHE_THRESHOLD: float = 0.85
     ...
 ```
@@ -1998,12 +1999,12 @@ Cuatro artículos → cuatro sub-bloques. Detalle completo en
   a la BD va el HMAC, no el texto (Art. 17 auditable). `PostgresMappingStore` /
   `InMemoryMappingStore`.
 - **`app/persistence/` + `alembic/`** — engine SQLAlchemy 2.0 sobre **nuestro
-  único Postgres** (psycopg2); Alembic gestiona solo `pseudonym_mappings` +
+  único Postgres** (psycopg v3); Alembic gestiona solo `pseudonym_mappings` +
   `ingestion_jobs`; las tablas de sesión 5 siguen con `db.py`/`_ensure_columns`.
 - **`routers/ingestion.py`** — `POST /api/v1/ingestion/runs` (202 + job, dispara
   un BackgroundTask) y `GET /api/v1/ingestion/jobs/{id}`.
 
-Divergencias vs el profesor: 1 Postgres en vez de 2, driver psycopg2, sin
+Divergencias vs el profesor: 1 Postgres en vez de 2, sin
 `unstructured`, Angular intacto. La telemetría que tocó `services/estimation.py`
 en esta sesión ya la teníamos del stress test (§19). Verificado: 227 tests, ruff
 limpio, `import app.main` OK.
@@ -2138,7 +2139,91 @@ El laboratorio añade cuatro librerías (`anthropic` y `tiktoken` ya estaban): `
 Verificado tras toda la reorganización: **227 tests verdes** (sin regresiones), **ruff limpio**, la
 app arranca y registra las rutas nuevas (`/embeddings/compare`, `/api/v1/config/models`) sin perder
 las nuestras (`/api/v1/estimations`). Los reservados de S8 (`generation/rag/store/`,
-`generation/rag/retriever.py`) quedan vacíos a propósito.
+`generation/rag/retriever.py`) quedaban vacíos a propósito **hasta la Sesión 8**, que los rellena
+(ver §22).
+
+---
+
+## 22. Persistencia en pgvector y búsqueda semántica — sesión 8
+
+La Sesión 7 se quedaba en "generar vectores en memoria y devolverlos por HTTP". La Sesión 8
+**persiste** el corpus en PostgreSQL + `pgvector` y expone búsqueda semántica. El recorrido
+completo, con las cuatro justificaciones de diseño y las divergencias respecto al profesor, está en
+[`session-08.md`](session-08.md); aquí va el mapa pieza a pieza.
+
+### 22.1 El esquema: dos tablas y la migración (`alembic/versions/0002_session8_pgvector.py`)
+
+La migración `0002` (cadena `0001_session6_initial → 0002`) hace tres cosas: `CREATE EXTENSION IF
+NOT EXISTS vector`, crea `documents` (un presupuesto ingerido: `source_path`, `document_type`,
+`ingested_at`, `metadata` JSONB) y crea `chunks` (N por documento: `document_id` con FK
+`ON DELETE CASCADE`, `chunk_type`, `content`, `embedding Vector(1536)` *nullable*, `metadata`
+JSONB). Índices relacionales (FK, `chunk_type`, GIN sobre `metadata`) **pero ningún índice
+vectorial**: el *sequential scan* es la línea base que el directo medirá contra HNSW.
+
+Para que Alembic entienda el tipo `vector`, `alembic/env.py` registra `ischema_names["vector"] =
+Vector` e importa `app.generation.rag.store.models` para que las tablas queden en `Base.metadata`.
+
+> **Bug corregido:** `env.py` importaba la ruta obsoleta `app.persistence.models` (debía ser
+> `app.foundation.persistence.models`), latente desde la reorganización de la S7.
+
+### 22.2 Los modelos ORM (`generation/rag/store/models.py`)
+
+`DocumentRow` y `ChunkRow`, registrados sobre el **mismo `Base`** que las tablas de la Sesión 6
+(`foundation/persistence/models.py`). Detalle: `metadata` es atributo reservado en SQLAlchemy, así
+que el atributo Python es `metadata_` mapeado a la columna `"metadata"`. La relación lleva
+`cascade="all, delete-orphan", passive_deletes=True` para alinear el ORM con el `CASCADE` de la BD.
+
+### 22.3 El repositorio async (`generation/rag/store/repository.py`)
+
+`ChunkStore` **nunca abre ni cierra sesiones**: el llamador es dueño de la `AsyncSession`, de modo
+que una ingesta completa cabe en **una transacción**. Tres métodos: `find_document_id` (guard de
+duplicado), `persist_document_with_chunks` (inserta el documento, `flush()` para el id sin commit,
+`add_all` de los chunks) y `search` (los *k* más cercanos por `embedding.cosine_distance(...)`,
+operador `<=>`, ordenado ascendente).
+
+### 22.4 La capa de datos: doble stack sync/async (`foundation/persistence/database.py`)
+
+Conviven el motor **síncrono** (psycopg v3, caminos de la S6 fuera del hot path) y el **asíncrono**
+(asyncpg, los endpoints S8 en tiempo real). Ambos leen el mismo `DATABASE_URL`; el async
+**intercambia el token del driver** (`+psycopg`→`+asyncpg`), con la misma lógica que el oficial al
+haber **alineado** el driver síncrono en `psycopg` v3 (migrado desde `psycopg2` en S8). El factory
+async usa `expire_on_commit=False` para poder leer el id del documento tras el commit.
+
+### 22.5 El servicio de ingesta (`generation/rag/ingest_service.py`)
+
+`RagIngestService.ingest` orquesta dentro de **una sola sesión async** (`session.begin()`): (1)
+guard de duplicado → `DuplicateDocumentError`; (2) chunking estructural; (3) `embed_many` vía
+`asyncio.to_thread` (el cliente OpenAI es síncrono → a un hilo, sin bloquear el event loop); (4)
+persistir documento + chunks; (5) commit al salir. Si el embedder falla, **rollback completo**: no
+quedan documentos huérfanos.
+
+### 22.6 El retriever (`generation/rag/retriever.py`)
+
+`SemanticRetriever.search` embebe la query con **el mismo modelo** de la ingesta
+(`text-embedding-3-small` — mezclar modelos haría las distancias incomparables), pide al store los
+*k* más cercanos y devuelve un `SearchResponse` con `search_time_ms` y los `SearchHit`.
+
+### 22.7 Los endpoints (`api/embeddings.py` refactor, `api/search.py` nuevo)
+
+`POST /embeddings/ingest` pasa de devolver chunks+vectores a **persistirlos**: request con
+`source_path`/`document_type`/`content`, response `{document_id, chunks_created,
+embedding_dimension, ingestion_time_ms}`, y **409** (como `JSONResponse` para respetar la forma
+literal `{detail, document_id}`) si el `source_path` ya existe. `POST /search` es un router fino:
+cotas de `k` en `SearchRequest` (422), corpus vacío → 200 con `results: []`. Ambos se cablean en
+`dependencies.py` (`get_chunk_store`, `get_rag_ingest_service`, `get_semantic_retriever`) y se
+registran en `main.py`.
+
+### 22.8 Contrato y script (`generation/rag/schemas.py`, `scripts/query_examples.py`)
+
+`schemas.py` conserva los modelos de entrada de la S7 (`Budget`, `Chunk`, `EmbeddedChunk`) y cambia
+el contrato HTTP: `IngestRequest`/`IngestResponse` (persistente) + `SearchRequest`/`SearchHit`/
+`SearchResponse`. `query_examples.py` sustituye a `compare.py`: ingiere `data/budgets_sample.json`
+(idempotente, 409 = ya presente) y lanza 5 queries de ángulos distintos, volcadas a
+`output_examples.txt`.
+
+> **Bug corregido:** `db.py::create_all` importaba `from app import db_models` (obsoleto desde la
+> S7) → `from app.foundation.persistence import db_models`. Rompía la creación de las tablas de
+> conversación al arrancar la app.
 
 ---
 
@@ -2182,3 +2267,12 @@ las nuestras (`/api/v1/estimations`). Los reservados de S8 (`generation/rag/stor
 | Fixtures PDF | `evals/stress/fixtures/build_pdfs.py` | PDFs sintéticos calibrados 5/20/50/100 KB (gitignored, deterministas) |
 | Runner stress | `evals/stress/run.py` | Orquesta escenarios × tamaños × repeticiones → `results.csv` + resumen P50/P95 |
 | Reporte stress | `evals/stress/REPORT.md` | Entregable: tabla resumen + 3 curvas (como tablas) + 2 párrafos de lectura |
+| Migración pgvector (S8) | `alembic/versions/0002_session8_pgvector.py` | Extensión `vector` + tablas `documents`/`chunks` + índices no-vectoriales |
+| Modelos store (S8) | `generation/rag/store/models.py` | `DocumentRow` (1) → `ChunkRow` (N), `Vector(1536)`, `metadata_`→JSONB, CASCADE |
+| Repositorio store (S8) | `generation/rag/store/repository.py` | `ChunkStore` async: duplicado, persistir doc+chunks, búsqueda coseno (`<=>`) |
+| Capa de datos (S8) | `foundation/persistence/database.py` | Doble stack sync (psycopg v3) + async (asyncpg); swap `+psycopg`→`+asyncpg` |
+| Servicio ingesta (S8) | `generation/rag/ingest_service.py` | chunk→embed→persist en **una transacción**; rollback = sin huérfanos |
+| Retriever (S8) | `generation/rag/retriever.py` | Embebe la query (mismo modelo) → *k* chunks por distancia coseno |
+| Endpoint ingest (S8) | `api/embeddings.py` | `POST /embeddings/ingest` persiste; 409 forma literal `{detail, document_id}` |
+| Endpoint search (S8) | `api/search.py` | `POST /search`: cotas de `k` (422), corpus vacío → 200 vacío |
+| Script búsqueda (S8) | `scripts/query_examples.py` | Ingiere el corpus (idempotente) + 5 queries → `output_examples.txt` |
