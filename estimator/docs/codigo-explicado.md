@@ -1978,7 +1978,7 @@ tocar dos piezas. Ambos están documentados en `evals/stress/REPORT.md` (secció
 El Módulo 3 (RAG) no empieza por embeddings: empieza por los **datos**. Todo el
 código nuevo vive en `app/ingestion/` (+ `app/persistence/` y `routers/ingestion.py`).
 Cuatro artículos → cuatro sub-bloques. Detalle completo en
-[`session-06-ingesta.md`](session-06-ingesta.md); aquí el mapa rápido:
+[`session-06-ingesta.md`](session-06-rag-analisis-normalizacion/session-06-ingesta.md); aquí el mapa rápido:
 
 - **`ingestion/architecture.py`** — CLI (`python -m app.ingestion.architecture`).
   `CAGViability` (4 restricciones en `all([...])`) y `recommend_architecture`
@@ -2149,7 +2149,7 @@ las nuestras (`/api/v1/estimations`). Los reservados de S8 (`generation/rag/stor
 La Sesión 7 se quedaba en "generar vectores en memoria y devolverlos por HTTP". La Sesión 8
 **persiste** el corpus en PostgreSQL + `pgvector` y expone búsqueda semántica. El recorrido
 completo, con las cuatro justificaciones de diseño y las divergencias respecto al profesor, está en
-[`session-08.md`](session-08.md); aquí va el mapa pieza a pieza.
+[`session-08-rag-bbdd-vectoriales/session-08.md`](session-08-rag-bbdd-vectoriales/session-08.md); aquí va el mapa pieza a pieza.
 
 ### 22.1 El esquema: dos tablas y la migración (`alembic/versions/0002_session8_pgvector.py`)
 

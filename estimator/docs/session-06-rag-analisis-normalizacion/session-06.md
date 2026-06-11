@@ -2,7 +2,7 @@
 
 > Este documento describe **solo los cambios del ejercicio previo a la sesión 6** y sirve
 > de guía para seguir el ejercicio paso a paso. Para la guía completa del backend pieza a
-> pieza, ver [`codigo-explicado.md`](./codigo-explicado.md) (sección 19). Aquí se cuenta
+> pieza, ver [`codigo-explicado.md`](../codigo-explicado.md) (sección 19). Aquí se cuenta
 > *qué se tocó*, *por qué* y *cómo reproducirlo*, no se reexplica el CAG que ya existía.
 >
 > Implementación basada en el repo oficial del profesor (commit *“session 06 exercise: CAG
@@ -275,5 +275,5 @@ sobreescribiendo el valor del servidor.
   latencia; RAG traería solo el trozo relevante. El caso límite que justifica el
   salto: con adjuntos ≥ 50 KB, **cada turno incumple el SLA de 8 s**.
 
-El entregable es [`evals/stress/REPORT.md`](../evals/stress/REPORT.md) +
+El entregable es [`evals/stress/REPORT.md`](../../evals/stress/REPORT.md) +
 `results.csv` (gitignored).

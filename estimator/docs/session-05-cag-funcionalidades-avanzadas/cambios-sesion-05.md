@@ -2,7 +2,7 @@
 
 > Este documento describe **solo los cambios introducidos en esta implementación** (el
 > ejercicio previo a la sesión 5). Para la guía completa del backend pieza a pieza, ver
-> [`codigo-explicado.md`](./codigo-explicado.md) (sección 17). Aquí se cuenta *qué se tocó*
+> [`codigo-explicado.md`](../codigo-explicado.md) (sección 17). Aquí se cuenta *qué se tocó*
 > y *por qué*, no se reexplica el código que ya existía.
 
 ## 1. Objetivo
