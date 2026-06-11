@@ -471,4 +471,4 @@ Comprobaciones reales hechas en esta entrega:
 > **Referencias cruzadas:** el recorrido del código pieza a pieza está en
 > [`codigo-explicado.md`](../codigo-explicado.md) §22. La línea base de la Sesión 7 (chunking,
 > embeddings, arquitectura por capas) está en [`session-07.md`](../session-07.md). La **teoría**
-> subyacente a esta sesión está resumida en [`session-08-theory.md`](session-08-theory-rag-bbdd-vectoriales.md).
+> subyacente a esta sesión está resumida en [`session-08-theory.md`](session-08-theory-datadrivenai-bbdd-vectoriales.md).

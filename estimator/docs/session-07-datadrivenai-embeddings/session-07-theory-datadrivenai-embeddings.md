@@ -7,7 +7,7 @@
 > 4. **Chunking del proyecto: presupuestos JSON y transcripciones**
 >
 > Es la base teórica de la parte de **recuperación (retrieval)** del sistema RAG.
-> La persistencia vectorial y la búsqueda en sí las cubre la [Sesión 8](../session-08-rag-bbdd-vectoriales/session-08-theory-rag-bbdd-vectoriales.md).
+> La persistencia vectorial y la búsqueda en sí las cubre la [Sesión 8](../session-08-datadrivenai-bbdd-vectoriales/session-08-theory-datadrivenai-bbdd-vectoriales.md).
 
 ---
 
@@ -464,7 +464,7 @@ def _detect_topic_boundaries(self, utterances) -> list[int]:
 El hallazgo de Microsoft Azure (enriquecer cada chunk con metadata estructural **sube la accuracy de QA 15-25 puntos** sin tocar nada más) es de los de mejor relación esfuerzo/impacto. Ambos chunkers ya lo hacen de **tres formas**:
 
 1. **Headers contextuales DENTRO del texto** que se embede (el bloque entre corchetes). El vector incorpora esa info en su geometría semántica.
-2. **Metadata estructurada FUERA del texto**, en el dict `metadata`. No se embede pero viaja con el chunk a la BBDD vectorial. La [Sesión 8](../session-08-rag-bbdd-vectoriales/session-08-theory-rag-bbdd-vectoriales.md) muestra que **pgvector permite filtrar por esta metadata combinando búsqueda vectorial con filtros SQL clásicos**: *"componentes de auth para fintech del último año"* = búsqueda vectorial por la parte semántica + `client_sector = 'finance' AND year >= 2024`.
+2. **Metadata estructurada FUERA del texto**, en el dict `metadata`. No se embede pero viaja con el chunk a la BBDD vectorial. La [Sesión 8](../session-08-datadrivenai-bbdd-vectoriales/session-08-theory-datadrivenai-bbdd-vectoriales.md) muestra que **pgvector permite filtrar por esta metadata combinando búsqueda vectorial con filtros SQL clásicos**: *"componentes de auth para fintech del último año"* = búsqueda vectorial por la parte semántica + `client_sector = 'finance' AND year >= 2024`.
 3. **IDs trazables** (`{budget_id}::{component_id}`, `{meeting_id}::{block_index}`). Operacionalmente crítico: permite citar la fuente al usuario, auditar resultados, o invalidar chunks cuando el documento padre se actualice.
 
 > **Regla práctica — ¿texto o metadata?** Si la información **cambia el significado semántico** para una consulta natural (el sector importa para distinguir "auth para fintech" de "auth para e-commerce"), va en el **texto**. Si es **discreta y se usa para filtrar** (`year`, `complexity`, `estimated_hours`), va en **metadata**. A veces va en ambos (el sector pesa semánticamente **y** filtra): no es redundancia injustificada, cada copia cumple un rol distinto.
@@ -521,6 +521,6 @@ Esta teoría es la base de la parte de **ingesta y recuperación** del estimador
 - **Dos chunkers** con interfaz común: `JSONStructuralChunker` (presupuestos, 1 componente = 1 chunk con contexto del padre) y `TopicSegmentationChunker` (transcripciones, bloques temáticos con `all-MiniLM-L6-v2` local).
 - **Metadata enrichment** en texto (headers contextuales) **y** fuera (campos filtrables + IDs trazables).
 - **`IngestRouter`** que enruta por `document_type` hacia un `OpenAIEmbedder` compartido.
-- La persistencia de los vectores resultantes y la búsqueda semántica con filtros SQL las cubre la **[Sesión 8 — pgvector](../session-08-rag-bbdd-vectoriales/session-08-theory-rag-bbdd-vectoriales.md)**.
+- La persistencia de los vectores resultantes y la búsqueda semántica con filtros SQL las cubre la **[Sesión 8 — pgvector](../session-08-datadrivenai-bbdd-vectoriales/session-08-theory-datadrivenai-bbdd-vectoriales.md)**.
 
 > **El hilo conductor de la sesión:** no hay configuración universal. El modelo, la métrica y sobre todo la estrategia de chunking se eligen **midiendo sobre tus propios datos** — los benchmarks y los blogs son el mapa, no el territorio.

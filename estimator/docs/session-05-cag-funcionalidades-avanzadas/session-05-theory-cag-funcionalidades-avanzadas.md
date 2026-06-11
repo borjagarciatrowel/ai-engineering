@@ -1039,7 +1039,7 @@ Las cinco partes no son temas sueltos: son **cinco capas que se montan sobre el 
 
 **Hilo transversal — la misma regla operativa en las cinco:** *no añadas potencia (contexto, memoria, tiers, juez LLM, roles) por defecto. Añádela cuando tengas evidencia de que el sistema la necesita, mide siempre el coste en tokens y latencia, y mantén el aislamiento entre capas.* La sofisticación vive en la arquitectura, no en el modelo.
 
-**Divergencias de nuestro proyecto** (alineado al repo del profesor post-sesión-5 pero con nuestras decisiones propias): mantenemos Postgres único + telemetría propia + frontend Angular; cuando estas partes aterricen en código, el `ProjectMetadata`, el `TIER_CONFIG` y el flujo Actor-Critic-Boss se implementan sobre ese stack. Ver [session-08-theory.md](../session-08-rag-bbdd-vectoriales/session-08-theory-rag-bbdd-vectoriales.md) para la capa de persistencia vectorial (pgvector) que continúa esta línea en el módulo de RAG.
+**Divergencias de nuestro proyecto** (alineado al repo del profesor post-sesión-5 pero con nuestras decisiones propias): mantenemos Postgres único + telemetría propia + frontend Angular; cuando estas partes aterricen en código, el `ProjectMetadata`, el `TIER_CONFIG` y el flujo Actor-Critic-Boss se implementan sobre ese stack. Ver [session-08-theory.md](../session-08-datadrivenai-bbdd-vectoriales/session-08-theory-datadrivenai-bbdd-vectoriales.md) para la capa de persistencia vectorial (pgvector) que continúa esta línea en el módulo de RAG.
 
 ---
 

@@ -231,7 +231,7 @@ Session 8 **persists** the corpus in PostgreSQL + `pgvector` and exposes semanti
 `POST /embeddings/ingest` now stores one budget as a `document` plus its embedded `chunks`
 in a single transaction (409 on duplicate `source_path`); `POST /search` returns the *k*
 nearest chunks by cosine distance. Full walkthrough in
-[`docs/session-08-rag-bbdd-vectoriales/session-08.md`](docs/session-08-rag-bbdd-vectoriales/session-08.md); annotated code in
+[`docs/session-08-datadrivenai-bbdd-vectoriales/session-08.md`](docs/session-08-datadrivenai-bbdd-vectoriales/session-08.md); annotated code in
 [`docs/codigo-explicado.md`](docs/codigo-explicado.md) §22.
 
 Run the smoke test against the bundled corpus (15 budgets) and capture the output:

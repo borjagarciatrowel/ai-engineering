@@ -735,4 +735,4 @@ resolvéis juntos en el directo refactorizando esa conexión para que pase por e
 
 *Documento de teoría de la Sesión 3 · AI Engineering 2026/04. Relacionado: la búsqueda vectorial y
 pgvector que aquí solo se mencionan se desarrollan en la teoría de las sesiones 7 y 8
-(`docs/session-08-rag-bbdd-vectoriales/session-08-theory-rag-bbdd-vectoriales.md`).*
+(`docs/session-08-datadrivenai-bbdd-vectoriales/session-08-theory-datadrivenai-bbdd-vectoriales.md`).*
