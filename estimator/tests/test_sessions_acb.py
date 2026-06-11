@@ -18,9 +18,9 @@ from app.dependencies import (
     get_openai_client,
 )
 from app.main import app
-from app.schemas.critic import CriticFeedback, CriticIssue
-from app.services.estimation import EstimationService
-from app.sessions.store import DbSessionStore
+from app.domain.schemas.critic import CriticFeedback, CriticIssue
+from app.domain.estimation_service import EstimationService
+from app.generation.conversation.store import DbSessionStore
 from tests.conftest import FakeLLMWrapper
 
 

@@ -18,8 +18,8 @@ from app.dependencies import (
     get_openai_client,
 )
 from app.main import app
-from app.schemas.estimation import EstimationResult
-from app.services.estimation import EstimationService
+from app.domain.schemas.estimation import EstimationResult
+from app.domain.estimation_service import EstimationService
 from evals.dataset import load_dataset
 from evals.metrics import run_all_metrics
 from tests.conftest import FakeLLMWrapper, make_canned_result

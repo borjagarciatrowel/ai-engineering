@@ -5,8 +5,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
-from app.embedding_pipeline import router as embeddings
-from app.routers import estimations, ingestion, records, sessions
+from app.api.embeddings import router as embeddings_router
+from app.api import config as config_api
+from app.api import estimations, ingestion, records, sessions
 
 
 def configure_logging() -> None:
@@ -40,18 +41,19 @@ async def lifespan(app: FastAPI):
     configure_logging()
     log = structlog.get_logger()
     settings = get_settings()
-    # Create tables on startup. Best-effort: a missing DB must not crash the
-    # service (and lets the non-DB unit tests boot the app without Postgres).
+    # Session 5 divergence: persisted estimations + chat sessions live in
+    # Postgres. Create those tables on startup (best-effort: a missing DB must
+    # not crash boot, so the non-DB unit tests can still import the app).
     try:
-        from app.db import create_all
+        from app.foundation.persistence.db import create_all
 
         create_all()
         log.info("database_ready")
     except Exception as exc:  # noqa: BLE001
         log.warning("database_unavailable", error_type=type(exc).__name__, error=str(exc)[:200])
-    # Session 6: fail loudly (but don't crash) on a malformed catalog at boot
-    # rather than at the first ingestion request. Catalogs are versioned in git;
-    # a broken one is a deploy-time problem, not a request-time one.
+    # Session 6: fail fast on a malformed catalog rather than at the first
+    # ingestion request. Catalogs are versioned in git; a broken one is a
+    # deploy-time problem, not a request-time one.
     try:
         from app.dependencies import get_catalog
 
@@ -90,7 +92,8 @@ app.include_router(estimations.router)
 app.include_router(records.router)
 app.include_router(sessions.router)
 app.include_router(ingestion.router)
-app.include_router(embeddings.router)
+app.include_router(embeddings_router)
+app.include_router(config_api.router)
 
 
 @app.get("/health")

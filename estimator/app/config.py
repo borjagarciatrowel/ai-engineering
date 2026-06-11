@@ -22,6 +22,16 @@ class Settings(BaseSettings):
     # --- Session 3 fields (LiteLLM wrapper, Redis cache, Streamlit transport) ---
     PRIMARY_MODEL: str = "gpt-4o-mini"
     FALLBACK_MODEL: str = "claude-haiku-4-5-20251001"
+    # Session 7 live: catalog of models selectable at runtime via
+    # PUT /api/v1/config/models (kept aligned with MODEL_COSTS in
+    # app/foundation/llm/wrapper.py). The endpoint filters this list by the API
+    # keys actually configured.
+    AVAILABLE_MODELS: list[str] = [
+        "gpt-4o-mini",
+        "gpt-4o",
+        "claude-haiku-4-5-20251001",
+        "claude-sonnet-4-5",
+    ]
     LLM_TIMEOUT: int = 30
     LLM_RETRIES: int = 2
 
@@ -97,6 +107,15 @@ class Settings(BaseSettings):
     # HMAC salt for the pseudonym mapping hash. Rotating it invalidates all prior
     # mappings (the GDPR Art. 17 lever). CHANGE IN PROD — kept in env, not code.
     PSEUDONYM_HASH_SALT: str = "change-me-in-prod"
+
+    # --- Session 7 live fields (chunking strategies that call external APIs) ---
+    # LLM that decomposes a component into atomic propositions (one call per
+    # component). A small/cheap model is enough.
+    PROPOSITIONAL_CHUNKER_MODEL: str = "gpt-4o-mini"
+    # Claude model used by Contextual Retrieval to situate each chunk inside its
+    # parent budget. Prompt caching makes the (large) parent document cheap to
+    # reuse across the chunks of the same budget.
+    CONTEXTUAL_CHUNKER_MODEL: str = "claude-sonnet-4-5"
 
     @model_validator(mode="after")
     def validate_at_least_one_api_key(self) -> "Settings":

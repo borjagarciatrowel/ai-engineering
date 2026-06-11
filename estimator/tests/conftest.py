@@ -17,17 +17,17 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-import app.db_models  # noqa: F401 — register ORM models on Base.metadata
-from app.db import Base, get_db
+import app.foundation.persistence.db_models  # noqa: F401 — register ORM models on Base.metadata
+from app.foundation.persistence.db import Base, get_db
 from app.dependencies import (
     get_estimation_service,
     get_llm_wrapper,
     get_openai_client,
 )
 from app.main import app
-from app.schemas.estimation import EstimationResult
-from app.services.estimation import EstimationService
-from app.sessions.models import ProjectMetadata
+from app.domain.schemas.estimation import EstimationResult
+from app.domain.estimation_service import EstimationService
+from app.generation.conversation.models import ProjectMetadata
 
 
 @pytest.fixture
@@ -132,8 +132,8 @@ class FakeLLMWrapper:
         """Best-effort canned instance when no factory is registered."""
         # Local imports keep this lazy — the optional schemas only exist once
         # their modules ship.
-        from app.sessions.compression.anchors import _AnchorClassification
-        from app.sessions.compression.summarizer import _SummaryEnvelope
+        from app.generation.conversation.compression.anchors import _AnchorClassification
+        from app.generation.conversation.compression.summarizer import _SummaryEnvelope
 
         if schema is _SummaryEnvelope:
             return _SummaryEnvelope(summary="(canned summary for tests)")

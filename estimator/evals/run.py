@@ -31,10 +31,10 @@ from typing import Any, Literal
 import httpx
 from fastapi.testclient import TestClient
 
-import app.db_models  # noqa: F401 — register ORM models on Base.metadata
-from app.db import Base, get_db
+import app.foundation.persistence.db_models  # noqa: F401 — register ORM models on Base.metadata
+from app.foundation.persistence.db import Base, get_db
 from app.main import app
-from app.schemas.estimation import EstimationResult
+from app.domain.schemas.estimation import EstimationResult
 from evals.dataset import GoldenCase, load_dataset
 from evals.metrics import MetricResult, run_all_metrics
 

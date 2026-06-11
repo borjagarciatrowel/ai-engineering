@@ -10,7 +10,7 @@ import pytest
 from fastapi import Depends
 from fastapi.testclient import TestClient
 
-from app.db import get_db
+from app.foundation.persistence.db import get_db
 from app.dependencies import (
     get_estimation_service,
     get_llm_wrapper,
@@ -18,8 +18,8 @@ from app.dependencies import (
     get_session_store,
 )
 from app.main import app
-from app.services.estimation import EstimationService
-from app.sessions.store import DbSessionStore
+from app.domain.estimation_service import EstimationService
+from app.generation.conversation.store import DbSessionStore
 from tests.conftest import FakeLLMWrapper
 
 VALID_FORM = {

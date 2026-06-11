@@ -29,7 +29,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from openai import OpenAI  # noqa: E402
 
 from app.config import get_settings  # noqa: E402
-from app.embedding_pipeline.embedder import OpenAIEmbedder  # noqa: E402
+from app.generation.rag.embedding.embedder import OpenAIEmbedder  # noqa: E402
 
 
 def cosine_similarity(a: list[float], b: list[float]) -> float:

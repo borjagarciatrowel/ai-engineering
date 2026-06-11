@@ -13,12 +13,12 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-import app.db_models  # noqa: F401 — register the ORM model on Base.metadata
-from app.db import Base, get_db
+import app.foundation.persistence.db_models  # noqa: F401 — register the ORM model on Base.metadata
+from app.foundation.persistence.db import Base, get_db
 from app.dependencies import get_estimation_service
-from app.guardrails.input import InputGuardrailViolation
+from app.foundation.guardrails.input import InputGuardrailViolation
 from app.main import app
-from app.schemas.estimation import EstimationResponse, EstimationResult, LlmUsage
+from app.domain.schemas.estimation import EstimationResponse, EstimationResult, LlmUsage
 
 LONG_DESC = "A small B2B SaaS to manage employee equipment loans across teams."
 

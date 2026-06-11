@@ -39,6 +39,8 @@ Cuando lleguemos a una pieza, todas sus dependencias ya estarán explicadas.
 17. [Memoria conversacional y adjuntos — sesión 5 (`sessions/`, `attachments/`)](#17-memoria-conversacional-y-adjuntos--sesión-5)
 18. [Actor-Critic-Boss, compresión, tier y evals — sesión 5 en vivo](#18-actor-critic-boss-compresión-tier-y-evals--sesión-5-en-vivo)
 19. [Stress test del CAG: medir dónde rompe — sesión 6 (`evals/stress/`)](#19-stress-test-del-cag-medir-dónde-rompe--sesión-6)
+20. [Calidad del dato e ingesta — sesión 6 en vivo](#20-calidad-del-dato-e-ingesta--sesión-6-en-vivo)
+21. [Arquitectura por capas, laboratorio de chunking y modelo en caliente — sesión 7 en vivo](#21-arquitectura-por-capas-laboratorio-de-chunking-y-modelo-en-caliente--sesión-7-en-vivo)
 
 ---
 
@@ -76,6 +78,15 @@ Hay dos formas de usarlo:
 ---
 
 ## 2. Mapa de archivos
+
+> ⚠️ **Desde la sesión 7 en vivo, `app/` está reorganizado en capas**
+> (`foundation/` · `domain/` · `generation/` · `ingestion/` · `api/`). El árbol y las rutas
+> de las secciones 1–20 son las **anteriores** a esa reorganización (carpetas planas:
+> `services/`, `cache/`, `routers/`, `sessions/`, `db.py`…): el código no cambió, sólo
+> **dónde vive**. La sección **§21** explica la nueva estructura con el mapa de equivalencias
+> vieja→nueva; el contrato completo está en [`ARCHITECTURE.md`](../ARCHITECTURE.md). Ejemplos:
+> `services/estimation.py` → `domain/estimation_service.py`; `cache/semantic.py` →
+> `generation/cag/semantic.py`; `routers/` → `api/`.
 
 ```
 estimator/
@@ -1996,6 +2007,140 @@ Divergencias vs el profesor: 1 Postgres en vez de 2, driver psycopg2, sin
 `unstructured`, Angular intacto. La telemetría que tocó `services/estimation.py`
 en esta sesión ya la teníamos del stress test (§19). Verificado: 227 tests, ruff
 limpio, `import app.main` OK.
+
+## 21. Arquitectura por capas, laboratorio de chunking y modelo en caliente — sesión 7 en vivo
+
+La sesión 7 en vivo hizo tres cosas a la vez: **reordenó** todo el servicio en capas, **multiplicó**
+el chunking en un laboratorio de siete estrategias comparables, y añadió un **mando para cambiar el
+modelo del LLM sin reiniciar**. Esta sección lo explica pieza a pieza, primero para cualquiera y
+luego con el detalle del código.
+
+### 21.1 Por qué reordenar: de carpetas planas a capas
+
+**Para humanos.** El código venía creciendo como una estantería sin baldas: `services/`, `cache/`,
+`routers/`, `sessions/`, `guardrails/`, `prompts/`… Cada sesión apilaba otra carpeta y empezaba a
+costar saber **dónde vive cada cosa** y, sobre todo, **qué puede depender de qué**. Cuando todo puede
+llamar a todo, tocar una pieza rompe otra sin avisar.
+
+La reorganización mete baldas. La idea de fondo: el estimador no es **una** técnica de IA, son
+**tres apiladas** sobre una base común, y el código ahora lo refleja:
+
+- **CAG** (`generation/cag/`) — responde **sin tocar el LLM** si ya hay una respuesta equivalente.
+- **RAG** (`generation/rag/`) — convierte el corpus en chunks + embeddings (y, en S8, los recuperará).
+- **Agéntica** (`generation/agentic/`) — el bucle Actor-Crítico-Boss que audita la estimación.
+
+**La regla de oro:** esas tres capas **no se hablan entre sí**; componen sólo a través de un único
+"director de orquesta", el **conductor** (`domain/estimation_service.py`). Si dos necesitan colaborar,
+el método que las une va en el conductor, nunca con un import cruzado.
+
+**Para técnicos: las cinco capas.** Cada una sólo puede importar de las que tiene por encima.
+
+```
+app/
+├── config.py · dependencies.py · main.py   # raíz (composition root), por encima de las capas
+├── foundation/   llm · prompts · guardrails · attachments · persistence   # plomería sin opinión de IA
+├── domain/       schemas/ (el contrato) + estimation_service.py (el conductor)
+├── generation/   cag/ · rag/ · agentic/ · conversation/
+├── ingestion/    pipeline batch (offline) que alimenta RAG
+└── api/          routers finos (transporte)
+```
+
+`foundation` sólo importa `config`; `generation/<x>` importa `foundation` + `domain/schemas` pero
+**nunca a otro hermano de `generation`** (única excepción: `agentic` → `conversation`). La tabla
+completa de dependencias permitidas está en [`ARCHITECTURE.md`](../ARCHITECTURE.md).
+
+**Mapa de equivalencias (lo que mueve esta sesión).** El código de las secciones 1–20 no cambió;
+cambió su dirección:
+
+| Antes (plano) | Ahora (por capas) |
+|---|---|
+| `services/estimation.py` | `domain/estimation_service.py` |
+| `services/llm_wrapper.py` | `foundation/llm/wrapper.py` |
+| `services/cache.py` | `generation/cag/exact.py` |
+| `cache/semantic.py` | `generation/cag/semantic.py` |
+| `services/boss.py` · `services/critic.py` | `generation/agentic/boss.py` · `critic.py` |
+| `guardrails/` · `prompts/` · `attachments/` · `persistence/` | `foundation/…` |
+| `schemas/` | `domain/schemas/` |
+| `sessions/` | `generation/conversation/` |
+| `db.py` · `db_models.py` ⟂ | `foundation/persistence/db.py` · `db_models.py` |
+| `routers/` (incl. `records.py` ⟂) | `api/` |
+| `embedding_pipeline/{chunker,embedder,schemas,router}.py` | `generation/rag/{chunking/structural, embedding/embedder, schemas, →api/embeddings}` |
+
+Las filas con **⟂** son divergencias nuestras (records, doble BD, `DbSessionStore`). Todas encajan en
+el contrato: por ejemplo, `conversation/store.py` (nuestro `DbSessionStore`) importa el ORM de
+`foundation/persistence/`, y eso es legal porque `generation` puede importar `foundation`.
+
+### 21.2 El laboratorio de chunking (`generation/rag/chunking/`)
+
+**Para humanos.** *Chunking* es trocear los documentos antes de vectorizarlos. **Cómo** trocees
+condiciona lo bien que luego encuentras: trozos grandes diluyen el significado, trozos pequeños
+pierden contexto, y algunas técnicas cuestan dinero extra (llamadas a un LLM o a la API de
+embeddings) **al ingerir**. No hay ganadora universal. Por eso el directo monta un laboratorio que
+corre **siete formas de trocear sobre los mismos presupuestos** y las compara.
+
+**Para técnicos.** Todas implementan la misma interfaz (`chunking/base.py`: `Chunker.chunk(budgets)
+-> list[Chunk]` + `strategy_name`), cuentan tokens con el mismo tokenizador (`cl100k_base`) y emiten
+el mismo log `chunking_done`, para que las cifras sean comparables. El `structural.py` aporta los
+ayudantes (`render_component_text`, `serialize_budget`, `component_metadata`) que reutilizan las demás.
+
+| Estrategia | Idea | Coste extra al ingerir |
+|---|---|---|
+| `structural` | un componente = un chunk (línea base sensata) | — |
+| `fixed_size` | ventana ciega de 512 tokens con *overlap* (el "suelo") | — |
+| `recursive` | corta por separadores naturales (párrafo→línea→frase) — el **defecto razonable** | — |
+| `sentence_window` | indexa la frase, pero guarda ±2 frases de contexto en `metadata` | — (NLTK *punkt*) |
+| `semantic` | corta donde **cambia el tema** (percentil 95 de distancia) | **sí** (embebe el corpus) |
+| `propositional` | un LLM parte cada componente en **hechos atómicos** | **sí** (1 llamada/componente) |
+| `contextual_retrieval` | un LLM escribe un párrafo que **sitúa** cada trozo (técnica de Anthropic, con *prompt caching*) | **sí** (la más cara) |
+| `hierarchical` | dos niveles: hijos (componentes) + padre (presupuesto entero) | — |
+
+**El comparador** (`analysis/comparison.py`) produce dos señales informales (las métricas formales
+son de S11): (1) **estadísticas de corpus** por estrategia —nº de chunks, distribución de tokens,
+chunks huérfanos (<20 tok) y obesos (>800 tok), coste y segundos—; y (2) **top-k coseno** sobre un set
+de consultas. Cada estrategia se chunkea una sola vez y se memoiza, para no repetir las (caras)
+llamadas LLM. El coseno y los percentiles viven en `analysis/similarity.py`, a mano, sin numpy.
+
+Se expone en **`POST /embeddings/compare`** (`api/embeddings.py`), junto al `/embeddings/ingest`
+previo. Las estrategias con coste se construyen **por petición** (no se cachean) para que un cambio de
+modelo en caliente surta efecto en la siguiente comparación.
+
+> **Comprobación offline** (sin API, sobre nuestro `budgets_sample.json` de 15 presupuestos):
+> `structural` → 60 chunks, `fixed_size` → 60, `recursive` → 15 (cada presupuesto cabe en un chunk),
+> `hierarchical` → 75 (15 padres + 60 hijos). `semantic`/`propositional`/`contextual_retrieval`
+> requieren clave y se prueban en el directo, midiendo su coste con `ingestion_cost_usd`.
+
+### 21.3 Cambiar el modelo en caliente (`foundation/llm/runtime_config.py` + `api/config.py`)
+
+**Para humanos.** Antes, cambiar el modelo de lenguaje exigía editar `.env` y **reiniciar**. Ahora
+hay un **mando**: una llamada a la API cambia el modelo (p. ej. de `gpt-4o-mini` a `claude-sonnet-4-5`)
+y surte efecto en la **siguiente** petición, sin reiniciar y sobreviviendo a reinicios.
+
+**Para técnicos.** `runtime_config.py` guarda *overrides* en un *hash* de Redis; `.env` sigue siendo
+la capa de **valores por defecto** y Redis sólo guarda las **diferencias** (`effective(key)` =
+override si existe, si no el default). Las lecturas degradan con elegancia (Redis caído → default);
+las escrituras re-lanzan (un override fallido debe ser visible → 503). `api/config.py` expone
+`GET/PUT /api/v1/config/models` (valida todo antes de escribir nada).
+
+El override **fluye sin reconstruir objetos**: el `LLMWrapper` expone `primary_model`/`fallback_model`
+como **propiedades** que leen Redis en cada llamada; los chunkers `propositional`/`contextual` leen su
+modelo en su *factory*; y —divergencia nuestra— el `EstimationService` resuelve
+`CRITIC`/`METADATA`/`COMPRESSION` también como propiedades, de modo que los siete knobs surten efecto.
+`EMBEDDING_MODEL` queda fuera a propósito: cambiarlo invalidaría todos los vectores ya guardados.
+
+> **Nota de cliente.** El profesor añadió en el directo una pestaña "Ajustes" en su frontend Rails
+> que consume `/api/v1/config/models`. En este repo el frontend es Angular (`estimator-frontend/`) y
+> esa pestaña **aún no está portada**: el backend ya expone el endpoint; la UI llegará aparte.
+
+### 21.4 Dependencias y verificación
+
+El laboratorio añade cuatro librerías (`anthropic` y `tiktoken` ya estaban): `langchain-text-splitters`
+(recursive), `langchain-experimental` + `langchain-openai` (semantic) y `nltk` (sentence_window).
+Verificado tras toda la reorganización: **227 tests verdes** (sin regresiones), **ruff limpio**, la
+app arranca y registra las rutas nuevas (`/embeddings/compare`, `/api/v1/config/models`) sin perder
+las nuestras (`/api/v1/estimations`). Los reservados de S8 (`generation/rag/store/`,
+`generation/rag/retriever.py`) quedan vacíos a propósito.
+
+---
 
 ## Resumen en una página
 

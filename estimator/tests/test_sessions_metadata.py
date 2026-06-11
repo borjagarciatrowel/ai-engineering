@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
-from app.sessions.models import ProjectMetadata
+from app.generation.conversation.models import ProjectMetadata
 from tests.conftest import FakeLLMWrapper, make_canned_result
 
 VALID_FORM = {

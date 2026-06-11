@@ -12,10 +12,10 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-import app.db_models  # noqa: F401 — register ORM models on Base.metadata
-from app.db import Base
-from app.sessions.models import ConversationHistory, ProjectMetadata, Session
-from app.sessions.store import DbSessionStore, SessionNotFoundError
+import app.foundation.persistence.db_models  # noqa: F401 — register ORM models on Base.metadata
+from app.foundation.persistence.db import Base
+from app.generation.conversation.models import ConversationHistory, ProjectMetadata, Session
+from app.generation.conversation.store import DbSessionStore, SessionNotFoundError
 
 
 @pytest.fixture
@@ -52,8 +52,8 @@ def test_history_compression_drops_oldest_non_anchor_pairs() -> None:
     """The sliding-window invariant is now enforced by CompressionPolicy."""
     from unittest.mock import MagicMock
 
-    from app.sessions.compression import apply_compression
-    from app.sessions.compression.summarizer import _SummaryEnvelope
+    from app.generation.conversation.compression import apply_compression
+    from app.generation.conversation.compression.summarizer import _SummaryEnvelope
 
     wrapper = MagicMock()
     wrapper.complete_structured_chat.return_value = (
