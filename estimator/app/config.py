@@ -29,6 +29,8 @@ class Settings(BaseSettings):
     AVAILABLE_MODELS: list[str] = [
         "gpt-4o-mini",
         "gpt-4o",
+        "gpt-5",
+        "gpt-5-mini",
         "claude-haiku-4-5-20251001",
         "claude-sonnet-4-5",
     ]
