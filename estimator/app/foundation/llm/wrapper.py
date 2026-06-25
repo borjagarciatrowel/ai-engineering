@@ -219,12 +219,18 @@ class LLMWrapper:
         model_override: str | None = None,
         max_tokens: int = 4000,
         max_retries: int = 6,
+        reasoning_effort: str | None = None,
     ) -> tuple[T, dict[str, Any]]:
         """Run the LLM with Instructor and return ``(model_instance, meta)``.
 
         ``meta`` includes ``model``, ``provider`` and ``latency_ms``. Instructor
         re-prompts the LLM up to ``max_retries`` times when a Pydantic validator
         raises, feeding the ``ValueError`` message back to the model.
+
+        Reasoning models (gpt-5 family) accept ``reasoning_effort``; LiteLLM
+        forwards it and translates ``max_tokens`` to ``max_completion_tokens``.
+        Reasoning tokens count against ``max_tokens``, so callers using a
+        reasoning model should raise it (see ``GENERATION_MAX_TOKENS``).
 
         Streaming bypasses are not relevant here — the entire model is built
         atomically by Instructor before this function returns.
@@ -246,6 +252,10 @@ class LLMWrapper:
             model=target_model,
             response_model=response_model.__name__,
         )
+        extra: dict[str, Any] = {}
+        if reasoning_effort is not None:
+            extra["reasoning_effort"] = reasoning_effort
+
         t0 = time.perf_counter()
         try:
             # create_with_completion returns the validated model AND the raw
@@ -260,6 +270,7 @@ class LLMWrapper:
                 response_model=response_model,
                 max_tokens=max_tokens,
                 max_retries=max_retries,
+                **extra,
             )
         except Exception as exc:
             latency_ms = int((time.perf_counter() - t0) * 1000)
@@ -315,6 +326,7 @@ class LLMWrapper:
         model_override: str | None = None,
         max_tokens: int = 4000,
         max_retries: int = 6,
+        reasoning_effort: str | None = None,
     ) -> tuple[T, dict[str, Any]]:
         """Conversational variant of :meth:`complete_structured`.
 
@@ -325,6 +337,8 @@ class LLMWrapper:
         fallback. Instructor handles re-prompts when Pydantic validators raise.
         Token usage / cost are captured via ``create_with_completion`` so
         conversational turns are observable, exactly like the single-shot path.
+
+        ``reasoning_effort`` (gpt-5 family) is forwarded to LiteLLM when set.
         """
         target_model = model_override or self.primary_model
         api_key = (
@@ -339,6 +353,10 @@ class LLMWrapper:
             response_model=response_model.__name__,
             messages=len(messages),
         )
+        extra: dict[str, Any] = {}
+        if reasoning_effort is not None:
+            extra["reasoning_effort"] = reasoning_effort
+
         t0 = time.perf_counter()
         try:
             result, completion = self._instructor.chat.completions.create_with_completion(
@@ -349,6 +367,7 @@ class LLMWrapper:
                 response_model=response_model,
                 max_tokens=max_tokens,
                 max_retries=max_retries,
+                **extra,
             )
         except Exception as exc:
             latency_ms = int((time.perf_counter() - t0) * 1000)
