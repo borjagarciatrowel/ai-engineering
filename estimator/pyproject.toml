@@ -66,6 +66,7 @@ dependencies = [
     "greenlet>=3.0",
     # Session 10 — cross-encoder reranking (recall-then-rerank). Pulls torch.
     "sentence-transformers>=3.0",
+    "slowapi>=0.1.10",
 ]
 
 [dependency-groups]
