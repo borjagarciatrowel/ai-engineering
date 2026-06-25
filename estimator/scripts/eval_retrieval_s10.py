@@ -16,9 +16,10 @@ Method notes:
 * Queries are embedded ONCE upfront; embedding latency is an OpenAI round-trip
   shared by every config, so it is excluded from the timings (we measure the
   retrieval/rerank cost the techniques actually add).
-* A retrieved chunk is relevant iff its parent ``budget_id`` (inside the chunk
-  metadata) is in the query's annotated ``relevant_budget_ids``.
-  precision@5 = relevant_in_top5 / 5.
+* A permissive distance threshold is used so the top-5 is never truncated by the
+  relevance floor — we are comparing RANKING quality, not the soft-fail gate.
+* A retrieved chunk is relevant iff its parent ``budget_id`` is in the query's
+  annotated ``relevant_budget_ids``. precision@5 = relevant_in_top5 / 5.
 
 Usage (host, Postgres up + corpus ingested + OPENAI_API_KEY in .env)::
 
@@ -57,6 +58,8 @@ CONFIGS = [
     ("D", "Hybrid", "Yes", "hybrid", True),
 ]
 
+# No effective relevance floor: we want a full top-k to grade ranking quality.
+NO_FLOOR_THRESHOLD = 2.0
 # Latency sampling per (query, config): one discarded warm-up + N measured runs.
 MEASURED_RUNS = 3
 
@@ -73,14 +76,14 @@ class _Stopwatch:
         return False
 
 
-def precision_at_k(hits, relevant_ids: set[str], k: int) -> float:
+def precision_at_k(chunks, relevant_ids: set[str], k: int) -> float:
     """Fraction of the top-k results whose parent budget is genuinely relevant."""
-    top = hits[:k]
-    matches = sum(1 for hit in top if hit.metadata.get("budget_id") in relevant_ids)
+    top = chunks[:k]
+    matches = sum(1 for chunk in top if chunk.budget_id in relevant_ids)
     return matches / k
 
 
-async def _run_once(query_embedding, query_text, search_mode, rerank, settings, k):
+async def _run_once(query_embedding, query_text, search_mode, rerank, settings, chunk_types, k):
     return await retrieve(
         query_embedding=query_embedding,
         query_text=query_text,
@@ -89,7 +92,10 @@ async def _run_once(query_embedding, query_text, search_mode, rerank, settings, 
         top_k=k,
         recall_k=settings.RETRIEVAL_RECALL_TOP_K,
         rerank_top_n=k,
+        distance_threshold=NO_FLOOR_THRESHOLD,
         rrf_k=settings.RRF_K,
+        sectors=None,
+        chunk_types=chunk_types,
     )
 
 
@@ -97,6 +103,7 @@ async def main() -> int:
     settings = get_settings()
     golden = json.loads(GOLDEN_PATH.read_text(encoding="utf-8"))
     queries = golden["queries"]
+    chunk_types = golden.get("chunk_types")
     k = int(golden.get("k", 5))
 
     embedder = get_embedder()
@@ -121,17 +128,19 @@ async def main() -> int:
             emb = embeddings[q["id"]]
 
             # Warm-up (discarded) then measured runs.
-            await _run_once(emb, q["query"], search_mode, rerank, settings, k)
+            await _run_once(emb, q["query"], search_mode, rerank, settings, chunk_types, k)
             samples = []
             last = None
             for _ in range(MEASURED_RUNS):
                 with _Stopwatch() as sw:
-                    last = await _run_once(emb, q["query"], search_mode, rerank, settings, k)
+                    last = await _run_once(
+                        emb, q["query"], search_mode, rerank, settings, chunk_types, k
+                    )
                 samples.append(sw.elapsed_ms)
 
-            if not last:
+            if not last.chunks:
                 empty_warning = True
-            precision = precision_at_k(last, relevant, k)
+            precision = precision_at_k(last.chunks, relevant, k)
             results[cfg_id]["precisions"].append(precision)
             results[cfg_id]["latencies_ms"].extend(samples)
             results[cfg_id]["per_query"][q["id"]] = precision
