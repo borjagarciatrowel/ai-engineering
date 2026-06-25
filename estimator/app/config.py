@@ -117,6 +117,35 @@ class Settings(BaseSettings):
     # reuse across the chunks of the same budget.
     CONTEXTUAL_CHUNKER_MODEL: str = "claude-sonnet-4-5"
 
+    # --- Session 9 fields (RAG estimation: transcript → grounded estimate) ---
+    # Query understanding distills a transcript into an EstimationQuery; a small
+    # model is enough. Generation reasons over retrieved budgets, so it uses the
+    # strongest model with medium reasoning effort. Both go through LLMWrapper.
+    REFORMULATION_MODEL: str = "gpt-5-mini"
+    GENERATION_MODEL: str = "gpt-5"
+    # "high" drives a deeper, more consistent module→task decomposition (the S09
+    # article used "medium"; we raise it for the granular modular breakdown).
+    GENERATION_REASONING_EFFORT: Literal["minimal", "low", "medium", "high"] = "high"
+    # Token ceiling (reasoning + output) for the RAG structured calls. gpt-5 is a
+    # reasoning model: its reasoning tokens count against this budget, so the
+    # 4000 wrapper default leaves nothing for the JSON and the call truncates
+    # (finish_reason='length'). Generous headroom so high-effort reasoning can
+    # finish AND emit the larger nested (modules→tasks) Estimate. It is a CAP,
+    # not a target — the model only spends what it needs, so a high value adds no
+    # latency on its own.
+    GENERATION_MAX_TOKENS: int = 64000
+    # Retrieval knobs (locked defaults from the Session 9 articles).
+    RETRIEVAL_TOP_K: int = 10
+    RETRIEVAL_DISTANCE_THRESHOLD: float = 0.6
+    # Token budget for the assembled <source> context block (tiktoken cl100k_base).
+    MAX_CONTEXT_TOKENS: int = 16384
+    # Idempotency cache for POST /v1/estimate/from-transcript (seconds; 24h).
+    IDEMPOTENCY_TTL: int = 86400
+    # API keys for the two Session 9 routers. None disables the router (401 on
+    # every request) — set them in .env to enable the endpoints.
+    RETRIEVAL_API_KEY: str | None = None
+    ESTIMATE_API_KEY: str | None = None
+
     # --- Session 10 — hybrid search + cross-encoder reranking ---
     # Default retrieval mode. "vector" reproduces the Session 8 semantic baseline;
     # "hybrid" fuses the dense and lexical (full-text) branches with RRF. The
