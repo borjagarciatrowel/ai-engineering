@@ -109,18 +109,22 @@ La decisión correcta no la da la técnica sino **la ganancia de relevancia fren
 
 ---
 
-## Divergencias respecto a la solución del profesor (deliberadas)
+## Divergencias respecto a la solución del profesor
 
-| Aspecto | Profesor (oficial `session_10`) | Nuestro repo |
-|---------|----------------------------------|--------------|
-| Rama vectorial del pipeline | `search_filtered` (S9: filtros estructurales + threshold) | `ChunkStore.search` (S8, k-NN simple) — el filtrado por metadatos está **fuera de alcance** |
-| Contrato de salida | `RetrievedChunk` / `RetrievalResult` (con `low_confidence`, `candidates_evaluated`) | `SearchHit` (S8); `budget_id` viaja dentro de `.metadata` |
-| Toggle en runtime | `RuntimeRetrievalConfig` (Redis + UI "Ajustes") | Flags de `settings` + parámetro del pipeline + script (sin UI; no portamos esa pieza) |
-| Endpoint | añade `search_mode`/`rerank` a `RetrievalRequest` (`/v1/retrieval/search`) | exposición vía script + config; no tocamos `/search` (S8) |
-| Driver / infra | doble Postgres, `halfvec` en search | Postgres único, `cosine_distance` simple |
-| `tsvector` regconfig | `'english'` (dataset real en inglés) | **igual: `'english'`** (mismo dataset) |
+> **Actualización — `session_09_live` incorporado.** Las divergencias de *contrato* que tenía esta solución S10 quedaron **RESUELTAS** al portar la Sesión 9 *live*: el pipeline ahora devuelve `RetrievalResult`/`RetrievedChunk` y usa `search_filtered`; existe `RuntimeRetrievalConfig`; la recuperación se expone vía `POST /v1/retrieval/search` (y el flujo `from-transcript` usa híbrida+rerank a través del runtime config). Convergimos al contrato oficial — verificado byte-a-byte en todo el flujo RAG, los routers, RRF, el reranker y la migración FTS.
 
-Lo **idéntico al profesor**: la lógica de RRF, el wrapper del cross-encoder, el patrón recall-then-rerank (50→5), el modelo multilingüe, la migración FTS y el método de medición (golden set + precision@5 + latencia, 4 configuraciones).
+Divergencias que **permanecen** (preexistentes, de stack/infra, ortogonales a S9/S10):
+
+| Aspecto | Profesor (oficial) | Nuestro repo |
+|---------|--------------------|--------------|
+| Infra DB | doble Postgres + `halfvec` en search | **Postgres único**, `cosine_distance` simple (sin halfvec) |
+| Sesiones conversacionales | (store del brief) | **`DbSessionStore`** en Postgres (divergencia de S5) |
+| Frontend | Rails `estimator-web` | **Angular** (proyecto aparte) |
+| Meta de `LLMWrapper.complete_structured` | slim (`model`/`provider`/`latency_ms`) | **rica** (tokens, coste, finish_reason) — nuestra telemetría; cambio S9 aplicado de forma aditiva |
+| `Sector` | `Literal` cerrado | `str` abierto |
+| `tsvector` regconfig | `'english'` | **igual: `'english'`** (mismo dataset, en inglés) |
+
+Lo **idéntico al profesor** (verificado byte-a-byte): todo el flujo RAG (`estimator`, `query_reformulator`, `context_assembler`, `prompt_builder`, `validation`, `observability`, `idempotency`, `retriever`), `retrieval/pipeline.py`, RRF, el reranker, los routers seguros (`retrieval`/`estimate`/`estimate_stages`), `security`/`rate_limiting`/`deps`, la migración FTS, el corpus task-granular y el método de medición (golden set + precision@5 + latencia, 4 configuraciones).
 
 ---
 
