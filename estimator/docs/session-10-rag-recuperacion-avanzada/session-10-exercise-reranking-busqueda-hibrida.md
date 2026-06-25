@@ -75,9 +75,20 @@ Fusiona **por posición, no por puntuación** — esquiva el problema de que la 
 
 Vive en `scripts/` (herramienta de decisión puntual, no infraestructura de la app). El golden set es un dato versionado.
 
-## 5. Paso 5 — Conclusiones (a cerrar con las cifras reales)
+## 5. Paso 5 — Conclusiones (cifras reales sobre nuestro corpus)
 
-La decisión correcta no la da la técnica sino **la ganancia de relevancia frente a la fracción del presupuesto de latencia** que consume. En nuestro caso de uso (estimación de proyectos, donde la **generación posterior del LLM tarda varios segundos**), unos cientos de ms de reranking son ruido frente a una mejora sustancial del contexto → la hipótesis es que **D (híbrida + reranking)** gana en precisión con un coste de latencia asumible, y que **B** ya aporta sobre **A** en consultas con identificadores exactos (OAuth, FHIR, SCADA, ledger). **El veredicto final se cierra con la tabla A/B/C/D de nuestro corpus** (ver "Cómo ejecutar").
+Ejecutado `scripts/eval_retrieval_s10.py` sobre el golden set (5 consultas) y el corpus base (15 presupuestos / 60 chunks):
+
+| Config | Búsqueda | Reranking | Precision@5 | Latencia (ms) |
+|:------:|:--------:|:---------:|:-----------:|:-------------:|
+| A | Vectorial | No | **0,96** | **5,4** |
+| B | Híbrida | No | 0,96 | 7,6 |
+| C | Vectorial | Sí | 0,88 | 106,3 |
+| D | Híbrida | Sí | 0,88 | 110,2 |
+
+**Configuración elegida: A (vectorial, sin reranking).** Es la más barata (5,4 ms) y la más precisa (0,96). Aquí el reranking **NO compensa**: no mejora la relevancia, la **degrada** (0,96 → 0,88) y multiplica la latencia ~20× (+100 ms). Es exactamente el escenario "cuándo NO rerankear" del artículo 1: nuestro corpus es **pequeño y bien diferenciado**, así que la búsqueda vectorial ya ordena casi perfecto y no queda nada que el reranker pueda rescatar — solo reordena lo ya bien ordenado y, en Q4 (telemetría industrial) y Q5 (pasarela de pagos), empuja un chunk relevante fuera del top-5. La híbrida tampoco aporta: las 5 consultas son conceptuales y bien formuladas, la rama léxica no rescata nada y RRF degrada con elegancia (mismo 0,96 que A).
+
+> **Esto confirma la teoría, no la contradice.** El reranking paga cuando los relevantes *están* entre los candidatos pero *mal ordenados*; aquí ya están bien ordenados (0,96), así que solo queda el coste. La decisión la da el **dato**, no la moda — y con este corpus el dato dice "no". El veredicto cambiaría con un corpus mayor o más confundible (donde A bajaría y el margen para rerankear crecería); por eso el arnés queda en el repo, para re-medir cuando el corpus crezca.
 
 ---
 
@@ -145,16 +156,28 @@ uv run python -m app.generation.rag.retrieval.verify_reranker
 uv run python scripts/eval_retrieval_s10.py
 ```
 
-### Resultados (rellenar con la ejecución real sobre nuestro corpus)
+### Resultados (ejecución real sobre nuestro corpus — 2026-06-25)
+
+`uv run python scripts/eval_retrieval_s10.py` (Postgres con migración 0003 + corpus base ingerido + `OPENAI_API_KEY`):
 
 | Config | Búsqueda | Reranking | Precision@5 | Latencia (ms) |
 |:------:|:--------:|:---------:|:-----------:|:-------------:|
-| A | Vectorial | No | _pendiente_ | _pendiente_ |
-| B | Híbrida | No | _pendiente_ | _pendiente_ |
-| C | Vectorial | Sí | _pendiente_ | _pendiente_ |
-| D | Híbrida | Sí | _pendiente_ | _pendiente_ |
+| A | Vectorial | No | 0,96 | 5,4 |
+| B | Híbrida | No | 0,96 | 7,6 |
+| C | Vectorial | Sí | 0,88 | 106,3 |
+| D | Híbrida | Sí | 0,88 | 110,2 |
 
-> *Patrón esperado* (referencia del material de teoría, no nuestras cifras): el reranking llevó precision@5 de **0,48 → 0,80** a cambio de **35 ms → 290 ms** (+255 ms). En la estimación, +255 ms es <5 % del tiempo total (la generación tarda segundos) → se activa. Nuestras cifras reales deciden el paso 5.
+Precision@5 por consulta:
+
+| Consulta | A | B | C | D |
+|---|:---:|:---:|:---:|:---:|
+| Q1 (banca móvil, OAuth/pagos) | 0,80 | 0,80 | 1,00 | 1,00 |
+| Q2 (e-commerce storefront) | 1,00 | 1,00 | 1,00 | 1,00 |
+| Q3 (telemedicina/FHIR) | 1,00 | 1,00 | 1,00 | 1,00 |
+| Q4 (IoT industrial/telemetría) | 1,00 | 1,00 | 0,80 | 0,80 |
+| Q5 (pasarela de pagos/ledger) | 1,00 | 1,00 | 0,60 | 0,60 |
+
+Lectura: el reranking solo ayuda en Q1 (0,80→1,00) pero perjudica Q4 y Q5 → neto **negativo** (0,96→0,88). La híbrida es idéntica a la vectorial (consultas conceptuales; la rama léxica no rescata nada). Conclusión y elección de configuración en el **Paso 5**.
 
 ---
 
