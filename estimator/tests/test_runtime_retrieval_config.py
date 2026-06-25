@@ -17,7 +17,6 @@ import redis as redis_lib
 from app.config import Settings
 from app.foundation.llm.runtime_config import (
     RERANK_KEY,
-    RETRIEVAL_HASH_KEY,
     RETRIEVAL_KEYS,
     SEARCH_MODE_KEY,
     RuntimeConfigUnavailable,
