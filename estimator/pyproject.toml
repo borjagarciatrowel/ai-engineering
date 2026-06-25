@@ -64,6 +64,8 @@ dependencies = [
     # SQLAlchemy's async engine bridges sync/async via greenlet; it is an
     # optional dep that does not come in transitively with the bare driver.
     "greenlet>=3.0",
+    # Session 10 — cross-encoder reranking (recall-then-rerank). Pulls torch.
+    "sentence-transformers>=3.0",
 ]
 
 [dependency-groups]

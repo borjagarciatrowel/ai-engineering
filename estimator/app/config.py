@@ -117,6 +117,25 @@ class Settings(BaseSettings):
     # reuse across the chunks of the same budget.
     CONTEXTUAL_CHUNKER_MODEL: str = "claude-sonnet-4-5"
 
+    # --- Session 10 — hybrid search + cross-encoder reranking ---
+    # Default retrieval mode. "vector" reproduces the Session 8 semantic baseline;
+    # "hybrid" fuses the dense and lexical (full-text) branches with RRF. The
+    # pipeline falls back to this when a caller passes search_mode=None.
+    RETRIEVAL_SEARCH_MODE: Literal["vector", "hybrid"] = "vector"
+    # Whether the cross-encoder reranks by default (recall-then-rerank). Off keeps
+    # the baseline cheap; flip it via env var to turn reranking on without code.
+    RERANKER_ENABLED: bool = False
+    # Multilingual cross-encoder (ES+EN), small enough for CPU at teaching latency.
+    # First use downloads ~450MB from the HuggingFace hub.
+    RERANKER_MODEL: str = "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"
+    # Recall-then-rerank widths: recall this many candidates cheaply, then the
+    # cross-encoder rescores them down to RERANK_TOP_N.
+    RETRIEVAL_RECALL_TOP_K: int = 50
+    RERANK_TOP_N: int = 5
+    # RRF smoothing constant (Cormack et al. default). Larger = a document must
+    # rank well in BOTH branches to win; smaller = a single #1 can dominate.
+    RRF_K: int = 60
+
     @model_validator(mode="after")
     def validate_at_least_one_api_key(self) -> "Settings":
         """LiteLLM may try either provider via fallback, so we require at least one key."""

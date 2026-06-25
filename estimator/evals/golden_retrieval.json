@@ -1,0 +1,38 @@
+{
+  "description": "Session 10 golden set for retrieval evaluation. Five representative project descriptions to estimate, each hand-annotated with the historical budgets from data/budgets_sample.json that are genuinely relevant (a senior estimator would actually use them as an effort reference). Graded over the BASE corpus (chunk_type='budget_component'): a retrieved chunk counts as relevant iff its parent budget_id is in relevant_budget_ids. Distractors are deliberately same-sector 'similar but irrelevant' budgets (e.g. lending vs. banking, monitoring vs. telemedicine) and cross-sector lexical traps (e-commerce mobile wallets vs. a fintech payments gateway) — the exact failure mode this exercise attacks.",
+  "corpus": "data/budgets_sample.json",
+  "chunk_types": ["budget_component"],
+  "k": 5,
+  "queries": [
+    {
+      "id": "Q1",
+      "query": "Mobile banking application with OAuth 2.0 authentication, strong customer authentication, instant payments and a transaction ledger.",
+      "relevant_budget_ids": ["BUD-2024-014", "BUD-2024-040"],
+      "note": "Fintech banking auth + payments. Bullseye BUD-2024-014 (mobile banking API, OAuth, instant payments). BUD-2024-040 (card issuing with ledger/KYC) is the payments-ledger relative. Traps: BUD-2024-070 (fashion app with mobile wallets) is e-commerce; BUD-2024-090 (digital lending) is fintech but lending, not banking."
+    },
+    {
+      "id": "Q2",
+      "query": "Headless e-commerce storefront with a product catalog, shopping cart checkout and personalized product recommendations.",
+      "relevant_budget_ids": ["BUD-2024-021", "BUD-2024-070", "BUD-2023-015"],
+      "note": "E-commerce storefront/catalog/checkout. Bullseye BUD-2024-021 (headless storefront, real-time search, one-page checkout). BUD-2024-070 (fashion shopping app with recommendations) and BUD-2023-015 (online grocery store) are storefront relatives. Traps: BUD-2024-099 (marketplace re-platforming to microservices) is e-commerce but infra work; BUD-2024-040 (card issuing) is a cross-sector payments lexical trap."
+    },
+    {
+      "id": "Q3",
+      "query": "Telemedicine platform for patient appointment scheduling and video consultations with HL7/FHIR integration and clinical records.",
+      "relevant_budget_ids": ["BUD-2024-052", "BUD-2023-008", "BUD-2023-045"],
+      "note": "Healthcare telemedicine/scheduling. Bullseye BUD-2024-052 (telemedicine, video consultations, e-prescription). BUD-2023-008 (EHR with appointment scheduling + FHIR) and BUD-2023-045 (multi-clinic SaaS scheduling + lab) are scheduling/clinical relatives. Trap: BUD-2024-081 (remote patient monitoring, wearables) shares the healthcare sector but is monitoring, not scheduling/telemedicine."
+    },
+    {
+      "id": "Q4",
+      "query": "Industrial IoT platform ingesting sensor telemetry for predictive maintenance and real-time equipment monitoring on the shop floor.",
+      "relevant_budget_ids": ["BUD-2024-033", "BUD-2024-061"],
+      "note": "Industrial telemetry/monitoring. Bullseye BUD-2024-033 (industrial IoT, SCADA telemetry, predictive maintenance). BUD-2024-061 (smart factory quality control, PLC connectivity, shop-floor) is the factory-monitoring relative. Trap: BUD-2023-034 (robotic cell control, digital twin) is industrial but robotics control, not telemetry-driven maintenance."
+    },
+    {
+      "id": "Q5",
+      "query": "Real-time payments gateway with fraud detection, transaction reconciliation and a double-entry ledger.",
+      "relevant_budget_ids": ["BUD-2024-040", "BUD-2024-014"],
+      "note": "Fintech payments/ledger. Bullseye BUD-2024-040 (card issuing platform with ledger, KYC, webhooks). BUD-2024-014 (mobile banking, instant payments) is the payments relative. Traps: BUD-2023-015 (grocery store checkout/payments) and BUD-2024-070 (mobile wallets) are e-commerce lexical near-misses; BUD-2023-027 (retail investing app) is fintech but investing, not payments."
+    }
+  ]
+}

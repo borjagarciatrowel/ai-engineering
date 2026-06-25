@@ -139,6 +139,20 @@ def get_semantic_retriever() -> SemanticRetriever | None:
     )
 
 
+# --- Session 10: hybrid search + cross-encoder reranking -------------------
+
+
+@lru_cache
+def get_reranker():
+    """Cross-encoder reranker singleton (Session 10). The model loads lazily on
+    the first rerank, so building this is cheap and import-time has no torch
+    cost. Imported lazily so the app/tests do not pull torch unless reranking
+    actually runs."""
+    from app.generation.rag.retrieval.reranker import CrossEncoderReranker
+
+    return CrossEncoderReranker.from_settings()
+
+
 @lru_cache
 def get_anthropic_client() -> anthropic.Anthropic | None:
     """Lazy Anthropic client. ``None`` when no API key is configured."""

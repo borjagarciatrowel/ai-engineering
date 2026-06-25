@@ -8,7 +8,7 @@ everything back and leaves no orphan ``documents`` row.
 
 from __future__ import annotations
 
-from sqlalchemy import Row, select
+from sqlalchemy import Row, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.generation.rag.schemas import EmbeddedChunk
@@ -82,5 +82,38 @@ class ChunkStore:
             )
             .order_by(distance)
             .limit(k)
+        )
+        return list((await session.execute(stmt)).all())
+
+    async def search_lexical(
+        self, session: AsyncSession, *, query_text: str, top_k: int = 50
+    ) -> list[Row]:
+        """Keyword (full-text) ranking over the ``content_tsv`` column (Session 10).
+
+        The lexical branch of hybrid search: ``plainto_tsquery`` turns the query
+        into a tsquery (AND of its lexemes, stop-words dropped), ``@@`` keeps only
+        chunks that match, and ``ts_rank_cd`` (cover-density) ranks them — higher
+        is better, opposite to vector distance. The ``english`` config MUST match
+        the generated column's config (migration 0003) or the GIN index is bypassed
+        and matching silently changes. No structural filters: metadata filtering is
+        out of this exercise's scope (Session 9 territory).
+
+        Returns rows ordered by rank DESC (most relevant first), capped at
+        ``top_k``. ``rank`` rides along for debugging; fusion only uses the order.
+        """
+        tsquery = func.plainto_tsquery("english", query_text)
+        rank = func.ts_rank_cd(ChunkRow.content_tsv, tsquery)
+        stmt = (
+            select(
+                ChunkRow.id,
+                ChunkRow.document_id,
+                ChunkRow.chunk_type,
+                ChunkRow.content,
+                ChunkRow.metadata_,
+                rank.label("rank"),
+            )
+            .where(ChunkRow.content_tsv.op("@@")(tsquery))
+            .order_by(rank.desc())
+            .limit(top_k)
         )
         return list((await session.execute(stmt)).all())

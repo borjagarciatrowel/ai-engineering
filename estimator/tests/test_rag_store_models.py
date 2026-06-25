@@ -44,5 +44,16 @@ def test_relational_indexes_present():
         "ix_chunks_document_id",
         "ix_chunks_chunk_type",
         "ix_chunks_metadata_gin",
+        "ix_chunks_content_tsv",
     }
     assert {index.name for index in DocumentRow.__table__.indexes} == {"ix_documents_source_path"}
+
+
+def test_content_tsv_is_a_generated_tsvector_column():
+    # Session 10: STORED generated tsvector backing the lexical search branch.
+    from sqlalchemy.dialects.postgresql import TSVECTOR
+
+    col = ChunkRow.__table__.c.content_tsv
+    assert isinstance(col.type, TSVECTOR)
+    assert col.computed is not None  # GENERATED ALWAYS ... STORED
+    assert col.nullable is True
