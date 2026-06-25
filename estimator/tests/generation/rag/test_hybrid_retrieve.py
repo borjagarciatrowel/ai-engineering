@@ -2,9 +2,8 @@
 
 The vector store, lexical branch and cross-encoder are all faked: no Postgres,
 no torch. We assert the four configurations (vector/hybrid × rerank on/off)
-compose correctly — recall width, RRF fusion of the two branches, the reranker
-reordering + top-N cut, and the empty-result contract — over our Session-8
-``SearchHit`` return shape (budget_id rides inside ``.metadata``).
+compose correctly — recall width, RRF fusion of the two branches, the
+reranker reordering + top-N cut, and the soft-fail contract.
 """
 
 from __future__ import annotations
@@ -36,7 +35,7 @@ def _row(chunk_id: int, *, distance: float = 0.3, budget_id: str | None = None):
         chunk_type="budget_component",
         content=f"chunk-{chunk_id}",
         metadata_={
-            "client_sector": "fintech",
+            "client_sector": "ecommerce",
             "year": 2024,
             "budget_id": budget_id or f"BUD-{chunk_id}",
         },
@@ -45,21 +44,20 @@ def _row(chunk_id: int, *, distance: float = 0.3, budget_id: str | None = None):
 
 
 class FakeStore:
-    """Mimics ChunkStore.search / search_lexical (the Session-8 + Session-10 API)."""
-
-    def __init__(self, vector_rows, lexical_rows):
+    def __init__(self, vector_rows, lexical_rows, candidates=12):
         self.vector_rows = vector_rows
         self.lexical_rows = lexical_rows
+        self.candidates = candidates
         self.vector_calls: list[dict] = []
         self.lexical_calls: list[dict] = []
 
-    async def search(self, session, *, query_vector, k):
-        self.vector_calls.append({"k": k})
-        return self.vector_rows[:k]
+    async def search_filtered(self, session, **kwargs):
+        self.vector_calls.append(kwargs)
+        return self.vector_rows[: kwargs["top_k"]], self.candidates
 
-    async def search_lexical(self, session, *, query_text, top_k):
-        self.lexical_calls.append({"top_k": top_k})
-        return self.lexical_rows[:top_k]
+    async def search_lexical(self, session, **kwargs):
+        self.lexical_calls.append(kwargs)
+        return self.lexical_rows[: kwargs["top_k"]]
 
 
 class FakeReranker:
@@ -86,50 +84,59 @@ async def test_vector_mode_no_rerank_returns_distance_order(wire):
     store = FakeStore(vector_rows=[_row(1), _row(2), _row(3)], lexical_rows=[])
     wire(store)
 
-    hits = await retrieve(
+    result = await retrieve(
         query_embedding=[0.0] * 1536,
-        query_text="fintech payments",
+        query_text="ecommerce checkout",
         search_mode="vector",
         rerank=False,
         top_k=2,
     )
 
-    assert [h.chunk_id for h in hits] == [1, 2]
-    assert hits[0].metadata["budget_id"] == "BUD-1"
+    assert [c.id for c in result.chunks] == [1, 2]
+    assert result.low_confidence is False
+    assert result.candidates_evaluated == 12
+    assert result.chunks[0].budget_id == "BUD-1"
     # Pure vector / no rerank recalls exactly top_k (no wide recall).
-    assert store.vector_calls[0]["k"] == 2
+    assert store.vector_calls[0]["top_k"] == 2
     assert store.lexical_calls == []  # lexical branch not touched
 
 
 async def test_hybrid_mode_fuses_vector_and_lexical(wire):
     # Vector finds 1,2; lexical finds 3 (only the keyword branch surfaces it).
-    store = FakeStore(vector_rows=[_row(1), _row(2)], lexical_rows=[_row(3), _row(1)])
+    store = FakeStore(
+        vector_rows=[_row(1), _row(2)],
+        lexical_rows=[_row(3), _row(1)],
+    )
     wire(store)
 
-    hits = await retrieve(
+    result = await retrieve(
         query_embedding=[0.0] * 1536,
-        query_text="fintech payments",
+        query_text="ecommerce checkout",
         search_mode="hybrid",
         rerank=False,
         top_k=5,
         recall_k=50,
     )
 
-    assert {h.chunk_id for h in hits} == {1, 2, 3}  # lexical-only id 3 fused in
+    ids = {c.id for c in result.chunks}
+    assert ids == {1, 2, 3}  # lexical-only id 3 made it into the fused result
     # Hybrid recalls wide on both branches.
-    assert store.vector_calls[0]["k"] == 50
+    assert store.vector_calls[0]["top_k"] == 50
     assert store.lexical_calls[0]["top_k"] == 50
 
 
 async def test_rerank_reorders_and_cuts_to_top_n(wire):
-    store = FakeStore(vector_rows=[_row(1), _row(2), _row(3)], lexical_rows=[])
+    store = FakeStore(
+        vector_rows=[_row(1), _row(2), _row(3)],
+        lexical_rows=[],
+    )
     wire(store)
     # Make chunk-3 the most relevant per the cross-encoder, chunk-1 the least.
     reranker = FakeReranker({"chunk-1": 0.1, "chunk-2": 0.5, "chunk-3": 0.9})
 
-    hits = await retrieve(
+    result = await retrieve(
         query_embedding=[0.0] * 1536,
-        query_text="fintech payments",
+        query_text="ecommerce checkout",
         search_mode="vector",
         rerank=True,
         recall_k=50,
@@ -137,18 +144,20 @@ async def test_rerank_reorders_and_cuts_to_top_n(wire):
         reranker=reranker,
     )
 
-    assert [h.chunk_id for h in hits] == [3, 2]  # reranked order, cut to 2
+    assert [c.id for c in result.chunks] == [3, 2]  # reranked order, cut to 2
 
 
-async def test_empty_when_nothing_retrieved(wire):
-    store = FakeStore(vector_rows=[], lexical_rows=[])
+async def test_soft_fail_when_nothing_retrieved(wire):
+    store = FakeStore(vector_rows=[], lexical_rows=[], candidates=7)
     wire(store)
 
-    hits = await retrieve(
+    result = await retrieve(
         query_embedding=[0.0] * 1536,
-        query_text="fintech payments",
+        query_text="ecommerce checkout",
         search_mode="hybrid",
         rerank=False,
     )
 
-    assert hits == []
+    assert result.chunks == []
+    assert result.low_confidence is True
+    assert result.candidates_evaluated == 7
