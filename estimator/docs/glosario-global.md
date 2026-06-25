@@ -305,4 +305,4 @@
 
 ---
 
-> **Mantenimiento:** este glosario se compila de los `*-theory-*_v2.md` de cada sesión. Si añades un término nuevo en un doc de sesión, añádelo aquí en el grupo que corresponda.
+> **Mantenimiento:** este glosario se compila de los `*-theory-*.md` de cada sesión. Si añades un término nuevo en un doc de sesión, añádelo aquí en el grupo que corresponda.
