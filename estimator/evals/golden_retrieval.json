@@ -1,5 +1,5 @@
 {
-  "description": "Session 10 golden set for retrieval evaluation. Project descriptions and cross-collection questions, each hand-annotated with the documents that are genuinely relevant. Q1–Q5 are budget-only (graded over data/budgets_sample.json) and keep the original relevant_budget_ids; Q6–Q8 span the multi-index corpus (budgets + transcripts + technical docs) and use relevant_source_ids. A retrieved chunk counts as relevant iff its source_id (budget_id / transcript_id / doc_id) is in the relevant set. The distractors are deliberately cross-sector or cross-collection 'similar but irrelevant' documents — the exact failure modes this session attacks (averaged multi-topic queries, the dominant collection flooding the top-k, lexical identifiers diluted by embeddings). Annotation criterion: a document is relevant when it directly addresses the asked-for functionality/topic, not merely shares sector or vocabulary.",
+  "description": "Session 10 golden set for retrieval evaluation. Project descriptions and cross-collection questions, each hand-annotated with the documents that are genuinely relevant. Q1–Q5 are budget-only (graded over data/budgets_sample.json) and keep the original relevant_budget_ids; Q6–Q8 span the multi-index corpus (budgets + transcripts + technical docs) and use relevant_source_ids. A retrieved chunk counts as relevant iff its source_id (budget_id / transcript_id / doc_id) is in the relevant set. The distractors are deliberately cross-sector or cross-collection 'similar but irrelevant' documents — the exact failure modes this session attacks (averaged multi-topic queries, the dominant collection flooding the top-k, lexical identifiers diluted by embeddings). Annotation criterion: a document is relevant when it directly addresses the asked-for functionality/topic, not merely shares sector or vocabulary. NOTE (2026-07-02, Session 11 pre-work): Q1-Q7's relevant_*_ids were corrupted during the S10-live multi-collection port (commit f53df4c) — they were copy-pasted from the official repo's BUD-2024-001..017 numbering scheme, which does not exist in this repo's data/budgets_sample.json (whose 15 budgets use a different, non-sequential id scheme seeded in Session 7). Every Q1-Q5 relevant id was silently unmatchable, so any precision/recall computed against this file since f53df4c was meaningless. Re-annotated against the real corpus by re-reading data/budgets_sample.json + data/transcripts_sample.json + data/technical_docs_sample.json; ids below are verified to exist. Q8 was already correct (references no budget id).",
   "corpus": "data/budgets_sample.json + data/transcripts_sample.json + data/technical_docs_sample.json",
   "chunk_types": null,
   "k": 5,
@@ -7,51 +7,51 @@
     {
       "id": "Q1",
       "query": "Mobile banking application with OAuth2 authentication, PSD2 open banking compliance, strong customer authentication and a transaction ledger.",
-      "relevant_budget_ids": ["BUD-2024-001", "BUD-2024-003"],
-      "relevant_source_ids": ["BUD-2024-001", "BUD-2024-003"],
-      "note": "Fintech auth + payments. Trap: BUD-2024-006 (e-commerce marketplace vendor payouts) is 'payments-like' but irrelevant for a banking auth project."
+      "relevant_budget_ids": ["BUD-2024-014", "BUD-2024-040"],
+      "relevant_source_ids": ["BUD-2024-014", "BUD-2024-040"],
+      "note": "Fintech auth + payments. Bullseye BUD-2024-014 (mobile banking API, OAuth 2.0, instant payments). BUD-2024-040 (card issuing with a double-entry ledger) is the transaction-ledger relative. Trap: BUD-2024-070 (fashion app with mobile wallets) is e-commerce payments-like but not banking; BUD-2024-090 (digital lending) is fintech but lending, not banking auth."
     },
     {
       "id": "Q2",
       "query": "Headless e-commerce storefront with a product catalog, shopping cart checkout and personalized product recommendations.",
-      "relevant_budget_ids": ["BUD-2024-005", "BUD-2024-006", "BUD-2024-007", "BUD-2024-017"],
-      "relevant_source_ids": ["BUD-2024-005", "BUD-2024-006", "BUD-2024-007", "BUD-2024-017"],
-      "note": "E-commerce storefront/catalog/checkout. Trap: finance payment budgets (BUD-2024-003) and healthcare scheduling are close in topic words but wrong domain."
+      "relevant_budget_ids": ["BUD-2024-021", "BUD-2024-070", "BUD-2023-015"],
+      "relevant_source_ids": ["BUD-2024-021", "BUD-2024-070", "BUD-2023-015"],
+      "note": "E-commerce storefront/catalog/checkout/recommendations. Bullseye BUD-2024-021 (headless storefront, real-time search, one-page checkout). BUD-2024-070 (fashion app with recommendations + mobile wallets) and BUD-2023-015 (grocery store catalog/checkout) are storefront relatives. Trap: BUD-2024-099 (marketplace re-platforming to microservices) is e-commerce but infra work, not a storefront; BUD-2024-040 (card issuing) is a cross-sector payments lexical trap."
     },
     {
       "id": "Q3",
       "query": "Telemedicine platform for patient appointment scheduling and video consultations with HL7/FHIR integration and clinical records.",
-      "relevant_budget_ids": ["BUD-2024-009", "BUD-2024-010"],
-      "relevant_source_ids": ["BUD-2024-009", "BUD-2024-010"],
-      "note": "Healthcare telemedicine. Trap: BUD-2024-011 (pharmacy inventory) and BUD-2024-012 (clinical trials) share the healthcare sector but cover different functionality."
+      "relevant_budget_ids": ["BUD-2024-052", "BUD-2023-008", "BUD-2023-045"],
+      "relevant_source_ids": ["BUD-2024-052", "BUD-2023-008", "BUD-2023-045"],
+      "note": "Healthcare telemedicine/scheduling. Bullseye BUD-2024-052 (telemedicine, video consultations, e-prescription). BUD-2023-008 (EHR with appointment scheduling + FHIR interoperability) and BUD-2023-045 (multi-clinic scheduling + lab integration) are scheduling/clinical relatives. Trap: BUD-2024-081 (remote patient monitoring, wearables) shares the healthcare sector but is monitoring, not scheduling/telemedicine."
     },
     {
       "id": "Q4",
       "query": "Industrial IoT platform ingesting sensor telemetry for predictive maintenance and real-time equipment monitoring in a factory.",
-      "relevant_budget_ids": ["BUD-2024-013", "BUD-2024-015"],
-      "relevant_source_ids": ["BUD-2024-013", "BUD-2024-015"],
-      "note": "Industrial telemetry/monitoring. Trap: BUD-2024-014 (warehouse AGV coordination) is industrial but logistics, not telemetry-driven maintenance."
+      "relevant_budget_ids": ["BUD-2024-033", "BUD-2024-061"],
+      "relevant_source_ids": ["BUD-2024-033", "BUD-2024-061"],
+      "note": "Industrial telemetry/monitoring. Bullseye BUD-2024-033 (industrial IoT, SCADA telemetry, predictive maintenance). BUD-2024-061 (smart factory quality control, PLC connectivity, machine vision) is the factory-monitoring relative. Trap: BUD-2023-034 (robotic cell control, digital twin) is industrial but robotics control, not telemetry-driven maintenance."
     },
     {
       "id": "Q5",
       "query": "Real-time payments gateway with fraud detection, transaction reconciliation and a double-entry ledger.",
-      "relevant_budget_ids": ["BUD-2024-003", "BUD-2024-001"],
-      "relevant_source_ids": ["BUD-2024-003", "BUD-2024-001"],
-      "note": "Fintech payments. Trap: BUD-2024-006 (e-commerce vendor payouts) and BUD-2024-007 (grocery delivery payments) are lexically near but wrong domain."
+      "relevant_budget_ids": ["BUD-2024-040", "BUD-2024-014"],
+      "relevant_source_ids": ["BUD-2024-040", "BUD-2024-014"],
+      "note": "Fintech payments/ledger. Bullseye BUD-2024-040 (card issuing platform with double-entry ledger, KYC, webhooks). BUD-2024-014 (mobile banking, instant payments) is the payments relative. Trap: BUD-2023-015 (grocery store checkout) and BUD-2024-070 (mobile wallets) are e-commerce lexical near-misses; BUD-2023-027 (retail investing app) is fintech but investing, not payments."
     },
     {
       "id": "Q6",
       "query": "What did the client say about the Stripe Connect checkout, and how much did marketplace vendor payouts cost?",
-      "relevant_budget_ids": ["BUD-2024-006"],
-      "relevant_source_ids": ["TR-2024-002", "BUD-2024-006", "DOC-PAYMENTS-API"],
-      "note": "Cross-collection: a meeting (transcript) + a budget + the payments doc all answer this. Routing should hit transcript + budget (+ technical_doc). Trap: a single budgets index would miss the transcript discussion entirely."
+      "relevant_budget_ids": ["BUD-2024-021"],
+      "relevant_source_ids": ["TR-2024-002", "BUD-2024-021", "DOC-PAYMENTS-API"],
+      "note": "Cross-collection: TR-2024-002 (ShopFlow headless commerce meeting) explicitly discusses a Stripe Connect checkout for marketplace vendor payouts; BUD-2024-021 is that same project's budget (headless storefront, one-page checkout with Stripe); DOC-PAYMENTS-API's 'Stripe Connect onboarding' section covers vendor payouts verbatim. Routing should hit transcript + budget + technical_doc. Trap: a single budgets index would miss the transcript discussion entirely."
     },
     {
       "id": "Q7",
       "query": "How do we integrate predictive maintenance with SAP using IDoc/BAPI, and what was discussed about it?",
-      "relevant_budget_ids": ["BUD-2024-013", "BUD-2024-015"],
-      "relevant_source_ids": ["DOC-SAP-INTEGRATION", "TR-2022-004", "BUD-2024-013"],
-      "note": "Lexical identifiers (SAP, IDoc, BAPI) the embeddings dilute — hybrid search should lift the exact-match doc/transcript. Routing should span technical_doc + transcript + budget."
+      "relevant_budget_ids": ["BUD-2024-033"],
+      "relevant_source_ids": ["DOC-SAP-INTEGRATION", "TR-2022-004", "BUD-2024-033"],
+      "note": "Lexical identifiers (SAP, IDoc, BAPI) the embeddings dilute — hybrid search should lift the exact-match doc/transcript. TR-2022-004 is the FactoryOps industrial IoT meeting; BUD-2024-033 is that project's budget (SCADA telemetry, predictive maintenance engine); DOC-SAP-INTEGRATION specifies IDoc/BAPI work-order creation from predictive-maintenance alerts. Routing should span technical_doc + transcript + budget."
     },
     {
       "id": "Q8",
