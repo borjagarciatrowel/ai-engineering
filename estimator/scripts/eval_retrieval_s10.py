@@ -1,32 +1,32 @@
 #!/usr/bin/env python3
-"""Measure retrieval quality across the four Session 10 configurations.
+"""Measure retrieval quality across NAMED Session 10 configurations.
 
-Runs the golden set (``evals/golden_retrieval.json``) through the same
-``retrieve()`` pipeline the app uses, for each of:
+Runs the golden set (``evals/golden_retrieval.json``) through the advanced
+retrieval pipeline for each named configuration and reports precision@k (mean
+over the queries) and end-to-end latency (mean over measured runs), plus a
+per-query precision breakdown.
 
-    A  Vector  / no rerank   (the Session 8 baseline)
-    B  Hybrid  / no rerank
-    C  Vector  / rerank
-    D  Hybrid  / rerank
-
-and reports precision@5 (mean over the queries) and query latency (mean over
-measured runs) per configuration, plus a per-query precision breakdown.
+The configurations are DATA, not code branches: each is a ``StageConfig`` that
+turns specific stages on/off (the four pre-work baselines A–D, then routing,
+query transform, temporal decay and the full pipeline). Add a row by appending a
+``NamedConfig`` — no new code path.
 
 Method notes:
-* Queries are embedded ONCE upfront; embedding latency is an OpenAI round-trip
-  shared by every config, so it is excluded from the timings (we measure the
-  retrieval/rerank cost the techniques actually add).
-* A permissive distance threshold is used so the top-5 is never truncated by the
+* A permissive distance threshold is used so the top-k is never truncated by the
   relevance floor — we are comparing RANKING quality, not the soft-fail gate.
-* A retrieved chunk is relevant iff its parent ``budget_id`` is in the query's
-  annotated ``relevant_budget_ids``. precision@5 = relevant_in_top5 / 5.
+* A retrieved chunk is relevant iff its ``source_id`` (budget_id / transcript_id /
+  doc_id) is in the query's ``relevant_source_ids`` (``relevant_budget_ids`` is
+  still honoured for the original budget-only queries). precision@k = hits / k.
+* Latency is END-TO-END retrieval: unlike the pre-work harness it INCLUDES the
+  per-sub-query embedding and, for the routing/transform rows, the LLM calls those
+  techniques inherently add — that overhead IS the cost the trade-off weighs.
 
-Usage (host, Postgres up + corpus ingested + OPENAI_API_KEY in .env)::
+Usage (host, stack up + all three collections ingested + OPENAI_API_KEY)::
 
     uv run python scripts/eval_retrieval_s10.py
 
-Reranking configs download the cross-encoder weights on first use; verify first
-with ``uv run python -m app.generation.rag.retrieval.verify_reranker``.
+Ingest first: ``scripts/query_examples.py`` (budgets) +
+``scripts/build_multi_index_corpus.py`` (transcripts + technical docs).
 """
 
 from __future__ import annotations
@@ -35,121 +35,162 @@ import asyncio
 import json
 import statistics
 import sys
-import time
+from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 
-# Make ``app`` importable regardless of the working directory: this file lives at
-# estimator/scripts/eval_retrieval_s10.py, so the project root is one level up.
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
+ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from scripts.s08_common import Stopwatch, require_embedder  # noqa: E402
 
 from app.config import get_settings  # noqa: E402
-from app.dependencies import get_embedder, get_reranker  # noqa: E402
-from app.generation.rag.retrieval.pipeline import retrieve  # noqa: E402
+from app.dependencies import get_reranker  # noqa: E402
+from app.generation.rag.retrieval.advanced_pipeline import (  # noqa: E402
+    StageConfig,
+    advanced_retrieve,
+)
+from app.generation.rag.retrieval.collections import Collection  # noqa: E402
 
-GOLDEN_PATH = PROJECT_ROOT / "evals" / "golden_retrieval.json"
-
-# (id, search label, rerank label, search_mode, rerank)
-CONFIGS = [
-    ("A", "Vector", "No", "vector", False),
-    ("B", "Hybrid", "No", "hybrid", False),
-    ("C", "Vector", "Yes", "vector", True),
-    ("D", "Hybrid", "Yes", "hybrid", True),
-]
+GOLDEN_PATH = ROOT / "evals" / "golden_retrieval.json"
 
 # No effective relevance floor: we want a full top-k to grade ranking quality.
 NO_FLOOR_THRESHOLD = 2.0
 # Latency sampling per (query, config): one discarded warm-up + N measured runs.
 MEASURED_RUNS = 3
+# Budgets only, for the A–D baselines (keeps them comparable to the pre-work table).
+BUDGET_ONLY = [Collection.BUDGET]
 
 
-class _Stopwatch:
-    """Context manager measuring wall-clock milliseconds for the block."""
+@dataclass(frozen=True)
+class NamedConfig:
+    """One measured configuration: a label + the stage toggles + routing scope."""
 
-    def __enter__(self) -> "_Stopwatch":
-        self._start = time.perf_counter()
-        return self
-
-    def __exit__(self, *_exc) -> bool:
-        self.elapsed_ms = (time.perf_counter() - self._start) * 1000
-        return False
+    id: str
+    label: str
+    stages: StageConfig
+    explicit: list[Collection] | None  # None = let the router decide (multi-index)
 
 
-def precision_at_k(chunks, relevant_ids: set[str], k: int) -> float:
-    """Fraction of the top-k results whose parent budget is genuinely relevant."""
-    top = chunks[:k]
-    matches = sum(1 for chunk in top if chunk.budget_id in relevant_ids)
-    return matches / k
-
-
-async def _run_once(query_embedding, query_text, search_mode, rerank, settings, chunk_types, k):
-    return await retrieve(
-        query_embedding=query_embedding,
-        query_text=query_text,
-        search_mode=search_mode,
-        rerank=rerank,
-        top_k=k,
-        recall_k=settings.RETRIEVAL_RECALL_TOP_K,
-        rerank_top_n=k,
+def _stages(**overrides) -> StageConfig:
+    """Build a StageConfig with the harness defaults (permissive threshold, k=5)."""
+    base = dict(
+        routing_enabled=False,
+        query_transform_enabled=False,
+        search_mode="vector",
+        rerank=False,
+        temporal_decay_enabled=False,
+        top_k=5,
         distance_threshold=NO_FLOOR_THRESHOLD,
-        rrf_k=settings.RRF_K,
-        sectors=None,
-        chunk_types=chunk_types,
     )
+    base.update(overrides)
+    return StageConfig(**base)
+
+
+# The named configurations (DATA). A–D reproduce the pre-work baselines on the
+# budgets collection; E–H add the live-session techniques.
+CONFIGS: list[NamedConfig] = [
+    NamedConfig("A", "Vector", _stages(search_mode="vector"), BUDGET_ONLY),
+    NamedConfig("B", "Hybrid", _stages(search_mode="hybrid"), BUDGET_ONLY),
+    NamedConfig("C", "Vector+Rerank", _stages(search_mode="vector", rerank=True), BUDGET_ONLY),
+    NamedConfig("D", "Hybrid+Rerank", _stages(search_mode="hybrid", rerank=True), BUDGET_ONLY),
+    NamedConfig(
+        "E",
+        "Hybrid+Rerank+Temporal",
+        _stages(search_mode="hybrid", rerank=True, temporal_decay_enabled=True),
+        BUDGET_ONLY,
+    ),
+    NamedConfig(
+        "F",
+        "Multi-index routing",
+        _stages(search_mode="hybrid", rerank=True, routing_enabled=True),
+        None,
+    ),
+    NamedConfig(
+        "G",
+        "Query transform",
+        _stages(search_mode="hybrid", rerank=True, query_transform_enabled=True),
+        BUDGET_ONLY,
+    ),
+    NamedConfig(
+        "H",
+        "Full pipeline",
+        _stages(
+            search_mode="hybrid",
+            rerank=True,
+            routing_enabled=True,
+            query_transform_enabled=True,
+            temporal_decay_enabled=True,
+        ),
+        None,
+    ),
+]
+
+
+def relevant_ids(query: dict) -> set[str]:
+    """Annotated relevant document ids (generic source ids, budget ids fallback)."""
+    return set(query.get("relevant_source_ids") or query.get("relevant_budget_ids") or [])
+
+
+def precision_at_k(chunks, relevant: set[str], k: int) -> float:
+    """Fraction of the top-k results whose source document is genuinely relevant."""
+    top = chunks[:k]
+    hits = sum(1 for chunk in top if (chunk.source_id or chunk.budget_id) in relevant)
+    return hits / k
+
+
+async def _run_once(cfg: NamedConfig, query_text: str, embedder, reference_date: date):
+    outcome = await advanced_retrieve(
+        query_text=query_text,
+        embedder=embedder,
+        stages=cfg.stages,
+        explicit_collections=cfg.explicit,
+        reference_date=reference_date,
+    )
+    return outcome.chunks
 
 
 async def main() -> int:
-    settings = get_settings()
+    get_settings()
     golden = json.loads(GOLDEN_PATH.read_text(encoding="utf-8"))
     queries = golden["queries"]
-    chunk_types = golden.get("chunk_types")
     k = int(golden.get("k", 5))
+    reference_date = date.today()
 
-    embedder = get_embedder()
-    if embedder is None:
-        print("OPENAI_API_KEY is not set — cannot embed the golden queries.", file=sys.stderr)
-        return 1
-
-    print(f"Embedding {len(queries)} golden queries (excluded from timings)...")
-    embeddings = {q["id"]: embedder.embed_one(q["query"]) for q in queries}
-
-    # Warm the reranker once so its (one-time) model load does not skew the first
-    # timed reranking run.
+    embedder = require_embedder()
     print("Warming up the cross-encoder (first load downloads weights)...")
     get_reranker().load()
 
-    results = {cfg[0]: {"precisions": [], "latencies_ms": [], "per_query": {}} for cfg in CONFIGS}
+    results = {cfg.id: {"precisions": [], "latencies_ms": [], "per_query": {}} for cfg in CONFIGS}
     empty_warning = False
 
-    for cfg_id, _s, _r, search_mode, rerank in CONFIGS:
+    for cfg in CONFIGS:
         for q in queries:
-            relevant = set(q["relevant_budget_ids"])
-            emb = embeddings[q["id"]]
+            relevant = relevant_ids(q)
 
             # Warm-up (discarded) then measured runs.
-            await _run_once(emb, q["query"], search_mode, rerank, settings, chunk_types, k)
+            await _run_once(cfg, q["query"], embedder, reference_date)
             samples = []
             last = None
             for _ in range(MEASURED_RUNS):
-                with _Stopwatch() as sw:
-                    last = await _run_once(
-                        emb, q["query"], search_mode, rerank, settings, chunk_types, k
-                    )
+                with Stopwatch() as sw:
+                    last = await _run_once(cfg, q["query"], embedder, reference_date)
                 samples.append(sw.elapsed_ms)
 
-            if not last.chunks:
+            if not last:
                 empty_warning = True
-            precision = precision_at_k(last.chunks, relevant, k)
-            results[cfg_id]["precisions"].append(precision)
-            results[cfg_id]["latencies_ms"].extend(samples)
-            results[cfg_id]["per_query"][q["id"]] = precision
+            precision = precision_at_k(last, relevant, k)
+            results[cfg.id]["precisions"].append(precision)
+            results[cfg.id]["latencies_ms"].extend(samples)
+            results[cfg.id]["per_query"][q["id"]] = precision
 
     _print_report(results, queries, k)
     if empty_warning:
         print(
-            "\nWARNING: some configurations returned 0 chunks. Is the base corpus "
-            "ingested? Run `uv run python scripts/query_examples.py` to ingest it.",
+            "\nWARNING: some configurations returned 0 chunks. Are all three "
+            "collections ingested? Run scripts/query_examples.py and "
+            "scripts/build_multi_index_corpus.py.",
             file=sys.stderr,
         )
     return 0
@@ -157,19 +198,19 @@ async def main() -> int:
 
 def _print_report(results: dict, queries: list, k: int) -> None:
     print(f"\n## Retrieval evaluation — precision@{k} and latency\n")
-    print(f"| Config | Search | Reranking | Precision@{k} | Latency (ms) |")
-    print("| --- | --- | --- | --- | --- |")
-    for cfg_id, search_label, rerank_label, _m, _rr in CONFIGS:
-        bucket = results[cfg_id]
+    print(f"| Config | Stages | Precision@{k} | Latency (ms) |")
+    print("| --- | --- | --- | --- |")
+    for cfg in CONFIGS:
+        bucket = results[cfg.id]
         mean_p = statistics.fmean(bucket["precisions"])
         mean_l = statistics.fmean(bucket["latencies_ms"])
-        print(f"| {cfg_id} | {search_label} | {rerank_label} | {mean_p:.2f} | {mean_l:.1f} |")
+        print(f"| {cfg.id} | {cfg.label} | {mean_p:.2f} | {mean_l:.1f} |")
 
     print(f"\n### Per-query precision@{k}\n")
-    print("| Query | " + " | ".join(cfg[0] for cfg in CONFIGS) + " |")
+    print("| Query | " + " | ".join(cfg.id for cfg in CONFIGS) + " |")
     print("| --- | " + " | ".join("---" for _ in CONFIGS) + " |")
     for q in queries:
-        row = [q["id"]] + [f"{results[cfg[0]]['per_query'][q['id']]:.2f}" for cfg in CONFIGS]
+        row = [q["id"]] + [f"{results[cfg.id]['per_query'][q['id']]:.2f}" for cfg in CONFIGS]
         print("| " + " | ".join(row) + " |")
 
 
