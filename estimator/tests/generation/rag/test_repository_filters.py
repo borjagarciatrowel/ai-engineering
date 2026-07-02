@@ -8,11 +8,13 @@ We assert on the predicate COUNT, which needs no engine or session.
 
 from __future__ import annotations
 
+from app.generation.rag.store.models import BudgetChunkRow
 from app.generation.rag.store.repository import ChunkStore
 
 
 def test_structural_filters_counts_predicates():
     filters = ChunkStore._structural_filters(
+        BudgetChunkRow,
         sectors=["finance"],
         project_year_min=2020,
         project_year_max=None,
@@ -23,6 +25,7 @@ def test_structural_filters_counts_predicates():
 
 def test_structural_filters_empty():
     filters = ChunkStore._structural_filters(
+        BudgetChunkRow,
         sectors=None,
         project_year_min=None,
         project_year_max=None,
@@ -33,6 +36,7 @@ def test_structural_filters_empty():
 
 def test_structural_filters_all_axes():
     filters = ChunkStore._structural_filters(
+        BudgetChunkRow,
         sectors=["finance", "ecommerce"],
         project_year_min=2020,
         project_year_max=2024,
