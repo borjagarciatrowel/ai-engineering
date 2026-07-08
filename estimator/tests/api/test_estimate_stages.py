@@ -154,6 +154,24 @@ def test_assemble_drops_chunks_over_budget(client):
     assert len(body["kept_chunks"]) < 5
 
 
+def test_assemble_augmentation_toggle(client):
+    # Session 11: augment=True compresses (drops filler) and edge-load reorders.
+    chunks = [
+        _chunk(i, content=f"filler prose line\nITEM-{i} :: work — {i * 10} h").model_dump()
+        for i in range(1, 4)
+    ]
+    r = client.post(
+        "/v1/estimate/stages/assemble",
+        json={"chunks": chunks, "augment": True},
+        headers=_h(),
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["augmented"] is True
+    assert "filler prose" not in body["context_block"]
+    assert {c["id"] for c in body["kept_chunks"]} == {1, 2, 3}
+
+
 # --- generate (real validate_citations + check_coherence) ------------------
 
 def _generate_payload(estimate: Estimate) -> dict:
@@ -221,6 +239,55 @@ def test_generate_flags_incoherent_insufficient(client, monkeypatch):
     assert r.status_code == 200
     body = r.json()
     assert body["coherent"] is False
+
+
+# --- verify (Session 11: semantic hallucination gate, anchor-only) ----------
+
+
+def test_verify_flags_degraded_line(client):
+    # A grounded line claiming 90d against a cited 120h (≈15d) source → degraded.
+    estimate = Estimate(
+        confidence="high",
+        reasoning="r",
+        total_engineer_days=90,
+        modules=[
+            WorkModule(
+                name="Auth",
+                tasks=[
+                    TaskItem(
+                        name="OAuth login",
+                        engineer_days=90,
+                        grounded=True,
+                        sources=[
+                            SourceReference(chunk_id="1", document_id="BUD-1", evidence="120 h")
+                        ],
+                    )
+                ],
+            )
+        ],
+    )
+    payload = {
+        "estimate": estimate.model_dump(),
+        "kept_chunks": [_chunk(1, content="AUTH :: OAuth backend — 120 h").model_dump()],
+        "use_judge": False,  # anchor-only: no LLM, deterministic.
+    }
+    r = client.post("/v1/estimate/stages/verify", json=payload, headers=_h())
+    assert r.status_code == 200
+    body = r.json()
+    assert body["total_lines"] == 1
+    assert body["degraded_lines"] == 1
+    assert body["lines"][0]["status"] == "degraded"
+
+
+def test_verify_requires_estimate_key(client):
+    body = {
+        "estimate": Estimate(confidence="insufficient", reasoning="x").model_dump(),
+        "kept_chunks": [],
+    }
+    assert client.post("/v1/estimate/stages/verify", json=body).status_code == 401
+    assert (
+        client.post("/v1/estimate/stages/verify", json=body, headers=_h(RET_KEY)).status_code == 401
+    )
 
 
 # --- structure (Session 10: free decomposition, no retrieval/sources) -------
