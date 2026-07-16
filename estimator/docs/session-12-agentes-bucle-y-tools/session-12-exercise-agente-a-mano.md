@@ -1,5 +1,7 @@
 # Sesión 12 — Ejercicio resuelto: un agente hecho a mano (bucle manual sobre la Responses API)
 
+> ⚠️ **SUPERADO por la sesión en vivo.** Este documento describe el diseño del **pre-work**, tal como se entregó. La sesión en vivo lo reencuadró: el agente dejó de ser un disparo autónomo al lado del pipeline y pasó a **conducir las dos fases del wizard**. En concreto, ya **no existen** `run_estimation_agent` ni la tool `calculate_estimate` (la sustituye `derive_task_hours`, que reutiliza el consenso determinista de S10), y el `AgentTrace` vive ahora en `app/domain/schemas/`. Ver [`session-12-live-port.md`](session-12-live-port.md) para el estado actual del código. Este doc se conserva porque explica el **mecanismo del bucle** (schemas planos, `call_id`, `previous_response_id`, guarda de iteraciones), que la sesión en vivo mantiene intacto.
+>
 > Resolución del ejercicio previo a la Sesión 12 ("Introducción a agentes de IA 🔴").
 > Resuelto **igual que el profesor** (rama oficial `session_12`, commit `492d467` — "solved pre exercise session 12"), **adaptado a las divergencias de nuestro repo**.
 > Alcance del enunciado: un agente que descompone una transcripción en componentes, usa `search_budgets` + `calculate_estimate` (+ la `validate_estimate` opcional) en un **bucle manual reason→act→observe**, y devuelve una estimación estructurada **junto a su traza**. Sin framework, sin endpoint HTTP ni UI (eso lo añade la sesión en vivo).
