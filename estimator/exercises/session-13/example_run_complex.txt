@@ -1,0 +1,48 @@
+==============================================================================
+SESSION 13 — ESTIMATION GRAPH RUN
+==============================================================================
+estimation_id : s13-sample_transcript_complex
+status        : validated
+
+REQUIREMENTS
+  - Develop a backend for business that includes order management, route assignment, shipment tracking, and fare calculation.
+  - Expose an API for the backend to connect with other components.
+  - Integrate the backend with SAP ERP for billing, customer synchronization, and item master management, including mapping IDocs and middleware layer setup.
+  - Develop a mobile app for delivery personnel for Android and iOS with the ability to view daily route, confirm deliveries with signature and photo, and function offline with synchronization upon reconnection.
+  - Create an analytics dashboard with KPIs for on-time deliveries, costs by route, and incidents, allowing filtering by area and client and including alerts for anomalies.
+
+COMPONENTS
+  - Business backend API [backend]
+  - Integration with SAP ERP [integration]
+  - Mobile delivery personnel app [mobile]
+  - Analytics dashboard [analytics]
+
+BUDGET MATCHES (accumulator field)
+  - Business backend API: 25h (ref TASK-2024-0060, distance 0.5071)
+  - Business backend API: 29h (ref TASK-2024-0054, distance 0.5105)
+  - Business backend API: 47h (ref TASK-2024-0003, distance 0.511)
+  - Business backend API: 37h (ref TASK-2024-0003, distance 0.5123)
+  - Business backend API: 36h (ref TASK-2024-0038, distance 0.5125)
+  - Integration with SAP ERP: 24h (ref TASK-2023-0046, distance 0.5727)
+  - Integration with SAP ERP: 37h (ref TASK-2023-0050, distance 0.5741)
+  - Integration with SAP ERP: 52h (ref TASK-2023-0057, distance 0.5754)
+  - Integration with SAP ERP: 52h (ref TASK-2023-0014, distance 0.5852)
+  - Integration with SAP ERP: 32h (ref TASK-2024-0009, distance 0.5891)
+  - Mobile delivery personnel app: 29h (ref TASK-2024-0018, distance 0.4471)
+  - Mobile delivery personnel app: 33h (ref TASK-2025-0045, distance 0.4597)
+  - Mobile delivery personnel app: 28h (ref TASK-2023-0050, distance 0.465)
+  - Mobile delivery personnel app: 24h (ref TASK-2023-0057, distance 0.4734)
+  - Mobile delivery personnel app: 20h (ref TASK-2024-0018, distance 0.5294)
+  - Analytics dashboard: 44h (ref TASK-2023-0020, distance 0.4083)
+  - Analytics dashboard: 41h (ref TASK-2022-0004, distance 0.411)
+  - Analytics dashboard: 36h (ref TASK-2022-0034, distance 0.4125)
+  - Analytics dashboard: 36h (ref TASK-2022-0033, distance 0.418)
+  - Analytics dashboard: 36h (ref TASK-2022-0035, distance 0.4181)
+  (20 matches total)
+
+ESTIMATE
+  - Business backend API: 5d — Rounded median of days: [3, 4, 6, 5, 5] derived from references.
+  - Integration with SAP ERP: 5d — Rounded median of days: [3, 5, 7, 7, 4] derived from references.
+  - Mobile delivery personnel app: 3d — Rounded median of days: [4, 4, 4, 3, 3] derived from references.
+  - Analytics dashboard: 5d — Rounded median of days: [6, 5, 5, 5, 5] derived from references.
+  TOTAL: 18d (confidence medium)

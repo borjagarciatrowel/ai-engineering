@@ -67,6 +67,14 @@ dependencies = [
     # Session 10 — cross-encoder reranking (recall-then-rerank). Pulls torch.
     "sentence-transformers>=3.0",
     "slowapi>=0.1.10",
+    # Session 13 — the estimation flow as an explicit LangGraph StateGraph, with a
+    # Postgres checkpointer (reuses the project's pgvector Postgres — its own
+    # tables coexist with the embeddings) and Logfire observability (span per
+    # node). langgraph was already a transitive dep (via langchain-experimental /
+    # langchain-openai, Session 7 live); this makes it a direct one.
+    "langgraph>=1.2.2",
+    "langgraph-checkpoint-postgres>=3.1.0",
+    "logfire[fastapi,httpx]>=4.37.0",
 ]
 
 [dependency-groups]
