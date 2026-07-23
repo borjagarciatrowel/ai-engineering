@@ -1,48 +1,239 @@
 ==============================================================================
-SESSION 13 — ESTIMATION GRAPH RUN
+SESSION 13 — MULTI-AGENT ESTIMATION GRAPH RUN
 ==============================================================================
-estimation_id : s13-sample_transcript_complex
+estimation_id : s13-live-real
+complexity    : high
 status        : validated
 
-REQUIREMENTS
-  - Develop a backend for business that includes order management, route assignment, shipment tracking, and fare calculation.
-  - Expose an API for the backend to connect with other components.
-  - Integrate the backend with SAP ERP for billing, customer synchronization, and item master management, including mapping IDocs and middleware layer setup.
-  - Develop a mobile app for delivery personnel for Android and iOS with the ability to view daily route, confirm deliveries with signature and photo, and function offline with synchronization upon reconnection.
-  - Create an analytics dashboard with KPIs for on-time deliveries, costs by route, and incidents, allowing filtering by area and client and including alerts for anomalies.
+STRUCTURE (structure_agent → gate 1)
+  ▸ Descubrimiento y diseño funcional
+      - Talleres de procesos con Operaciones e IT
+      - Definición de alcance y roadmap por prioridades
+      - Personas y journeys
+      - Reglas de negocio
+      - Requisitos no funcionales
+      - KPIs y métricas
+      - UX de la app móvil
+      - Criterios de aceptación
+      - Plan de releases y dependencias
+  ▸ Arquitectura de solución y modelo de datos
+      - Arquitectura lógica y dominios
+      - Decisiones de stack
+      - Modelo de datos conceptual/físico
+      - Estrategia de autenticación/autorización
+      - Contratos y versionado de APIs
+      - Estrategia de mensajería/eventos
+      - Almacenamiento de evidencias
+      - SLO/SLI y NFRs
+      - Topología de entornos
+      - Motor de rutas pluggable
+  ▸ Backend de negocio y API
+      - Modelado de dominios
+      - Estados y workflows
+      - Servicios de pedidos
+      - Enrutado y geocodificación
+      - Tracking y ETA
+      - Motor de tarifas
+      - Evidencias (POD)
+      - Eventos y notificaciones
+      - API REST pública
+      - AuthZ/AuthN y auditoría
+  ▸ Integración con SAP (ERP) y migración inicial
+      - Análisis de procesos SAP
+      - Arquitectura de integración
+      - Mapeos de IDocs↔dominio
+      - Middleware de integración
+      - Reintentos y DLQ
+      - Reconciliación y reportes
+      - Sincronización inicial de maestros
+      - Importación desde hojas de cálculo
+      - Pruebas E2E con SAP QA
+      - Seguridad e identidad técnica
+  ▸ Aplicación móvil de reparto (Android/iOS, offline)
+      - Bootstrap técnico
+      - Autenticación y sesión
+      - Ruta del día
+      - Captura de POD
+      - Offline-first
+      - Tracking en background
+      - Gestión de incidencias
+      - Sync y UX de errores
+      - Notificaciones push
+      - Publicación y beta testing
+  ▸ Panel de analítica y alertas
+      - Modelo analítico
+      - Ingesta ETL/ELT
+      - Cálculo de KPIs
+      - Dashboards y filtros
+      - Tendencias y drill-down
+      - Alertas
+      - Calidad y linaje de datos
+      - Gobernanza de acceso
+  ▸ Infraestructura, DevOps y observabilidad
+      - Repos y pipelines CI/CD
+      - Estrategias de despliegue
+      - Provisión de servicios
+      - Red y seguridad perimetral
+      - Backups y DR
+      - Observabilidad
+      - Autoescalado y costes
+      - Gestión de secretos
+  ▸ Seguridad y cumplimiento
+      - Threat modeling
+      - Controles OWASP
+      - Cifrado y claves
+      - Gestión de acceso
+      - Política de datos
+      - Testing de seguridad
+      - Seguridad del dispositivo
+      - Respuesta a incidentes
+  ▸ QA y pruebas
+      - Plan maestro de pruebas
+      - Tests automatizados
+      - Dobles de SAP y simuladores
+      - E2E y móviles
+      - Rendimiento y carga
+      - Usabilidad con pilotos
+      - Gestión de defectos
+  ▸ Gestión de proyecto, lanzamiento y formación
+      - Plan de proyecto y governance
+      - Stakeholder management
+      - Gestión de riesgos
+      - Plan de piloto y despliegue
+      - Formación y materiales
+      - Soporte de estabilización
 
-COMPONENTS
-  - Business backend API [backend]
-  - Integration with SAP ERP [integration]
-  - Mobile delivery personnel app [mobile]
-  - Analytics dashboard [analytics]
+ESTIMATE (hours agent → analysis → gate 2)
+  ▸ Descubrimiento y diseño funcional
+      - Talleres de procesos con Operaciones e IT: NO MATCH  ⚠ flagged
+      - Definición de alcance y roadmap por prioridades: NO MATCH  ⚠ flagged
+      - Personas y journeys: NO MATCH  ⚠ flagged
+      - Reglas de negocio: NO MATCH  ⚠ flagged
+      - Requisitos no funcionales: NO MATCH  ⚠ flagged
+      - KPIs y métricas: NO MATCH  ⚠ flagged
+      - UX de la app móvil: NO MATCH  ⚠ flagged
+      - Criterios de aceptación: NO MATCH  ⚠ flagged
+      - Plan de releases y dependencias: NO MATCH  ⚠ flagged
+  ▸ Arquitectura de solución y modelo de datos
+      - Arquitectura lógica y dominios: NO MATCH  ⚠ flagged
+      - Decisiones de stack: NO MATCH  ⚠ flagged
+      - Modelo de datos conceptual/físico: NO MATCH  ⚠ flagged
+      - Estrategia de autenticación/autorización: 45h
+      - Contratos y versionado de APIs: NO MATCH  ⚠ flagged
+      - Estrategia de mensajería/eventos: NO MATCH  ⚠ flagged
+      - Almacenamiento de evidencias: NO MATCH  ⚠ flagged
+      - SLO/SLI y NFRs: NO MATCH  ⚠ flagged
+      - Topología de entornos: NO MATCH  ⚠ flagged
+      - Motor de rutas pluggable: NO MATCH  ⚠ flagged
+  ▸ Backend de negocio y API
+      - Modelado de dominios: NO MATCH  ⚠ flagged
+      - Estados y workflows: NO MATCH  ⚠ flagged
+      - Servicios de pedidos: NO MATCH  ⚠ flagged
+      - Enrutado y geocodificación: NO MATCH  ⚠ flagged
+      - Tracking y ETA: 35h
+      - Motor de tarifas: NO MATCH  ⚠ flagged
+      - Evidencias (POD): NO MATCH  ⚠ flagged
+      - Eventos y notificaciones: NO MATCH  ⚠ flagged
+      - API REST pública: 42h
+      - AuthZ/AuthN y auditoría: NO MATCH  ⚠ flagged
+  ▸ Integración con SAP (ERP) y migración inicial
+      - Análisis de procesos SAP: NO MATCH  ⚠ flagged
+      - Arquitectura de integración: NO MATCH  ⚠ flagged
+      - Mapeos de IDocs↔dominio: NO MATCH  ⚠ flagged
+      - Middleware de integración: NO MATCH  ⚠ flagged
+      - Reintentos y DLQ: NO MATCH  ⚠ flagged
+      - Reconciliación y reportes: NO MATCH  ⚠ flagged
+      - Sincronización inicial de maestros: NO MATCH  ⚠ flagged
+      - Importación desde hojas de cálculo: NO MATCH  ⚠ flagged
+      - Pruebas E2E con SAP QA: NO MATCH  ⚠ flagged
+      - Seguridad e identidad técnica: NO MATCH  ⚠ flagged
+  ▸ Aplicación móvil de reparto (Android/iOS, offline)
+      - Bootstrap técnico: 32h
+      - Autenticación y sesión: NO MATCH  ⚠ flagged
+      - Ruta del día: NO MATCH  ⚠ flagged
+      - Captura de POD: NO MATCH  ⚠ flagged
+      - Offline-first: NO MATCH  ⚠ flagged
+      - Tracking en background: NO MATCH  ⚠ flagged
+      - Gestión de incidencias: NO MATCH  ⚠ flagged
+      - Sync y UX de errores: NO MATCH  ⚠ flagged
+      - Notificaciones push: 21h
+      - Publicación y beta testing: NO MATCH  ⚠ flagged
+  ▸ Panel de analítica y alertas
+      - Modelo analítico: NO MATCH  ⚠ flagged
+      - Ingesta ETL/ELT: NO MATCH  ⚠ flagged
+      - Cálculo de KPIs: NO MATCH  ⚠ flagged
+      - Dashboards y filtros: 47h
+      - Tendencias y drill-down: NO MATCH  ⚠ flagged
+      - Alertas: NO MATCH  ⚠ flagged
+      - Calidad y linaje de datos: NO MATCH  ⚠ flagged
+      - Gobernanza de acceso: NO MATCH  ⚠ flagged
+  ▸ Infraestructura, DevOps y observabilidad
+      - Repos y pipelines CI/CD: 27h
+      - Estrategias de despliegue: 30h
+      - Provisión de servicios: 17h
+      - Red y seguridad perimetral: NO MATCH  ⚠ flagged
+      - Backups y DR: NO MATCH  ⚠ flagged
+      - Observabilidad: 20h
+      - Autoescalado y costes: 37h
+      - Gestión de secretos: NO MATCH  ⚠ flagged
+  ▸ Seguridad y cumplimiento
+      - Threat modeling: NO MATCH  ⚠ flagged
+      - Controles OWASP: NO MATCH  ⚠ flagged
+      - Cifrado y claves: 25h
+      - Gestión de acceso: NO MATCH  ⚠ flagged
+      - Política de datos: NO MATCH  ⚠ flagged
+      - Testing de seguridad: 29h
+      - Seguridad del dispositivo: NO MATCH  ⚠ flagged
+      - Respuesta a incidentes: NO MATCH  ⚠ flagged
+  ▸ QA y pruebas
+      - Plan maestro de pruebas: 25h
+      - Tests automatizados: 33h
+      - Dobles de SAP y simuladores: 36h
+      - E2E y móviles: 26h
+      - Rendimiento y carga: 21h
+      - Usabilidad con pilotos: 27h
+      - Gestión de defectos: 41h
+  ▸ Gestión de proyecto, lanzamiento y formación
+      - Plan de proyecto y governance: 34h
+      - Stakeholder management: 45h
+      - Gestión de riesgos: NO MATCH  ⚠ flagged
+      - Plan de piloto y despliegue: NO MATCH  ⚠ flagged
+      - Formación y materiales: NO MATCH  ⚠ flagged
+      - Soporte de estabilización: NO MATCH  ⚠ flagged
+  TOTAL: 87d (695.0h, confidence medium)
 
-BUDGET MATCHES (accumulator field)
-  - Business backend API: 25h (ref TASK-2024-0060, distance 0.5071)
-  - Business backend API: 29h (ref TASK-2024-0054, distance 0.5105)
-  - Business backend API: 47h (ref TASK-2024-0003, distance 0.511)
-  - Business backend API: 37h (ref TASK-2024-0003, distance 0.5123)
-  - Business backend API: 36h (ref TASK-2024-0038, distance 0.5125)
-  - Integration with SAP ERP: 24h (ref TASK-2023-0046, distance 0.5727)
-  - Integration with SAP ERP: 37h (ref TASK-2023-0050, distance 0.5741)
-  - Integration with SAP ERP: 52h (ref TASK-2023-0057, distance 0.5754)
-  - Integration with SAP ERP: 52h (ref TASK-2023-0014, distance 0.5852)
-  - Integration with SAP ERP: 32h (ref TASK-2024-0009, distance 0.5891)
-  - Mobile delivery personnel app: 29h (ref TASK-2024-0018, distance 0.4471)
-  - Mobile delivery personnel app: 33h (ref TASK-2025-0045, distance 0.4597)
-  - Mobile delivery personnel app: 28h (ref TASK-2023-0050, distance 0.465)
-  - Mobile delivery personnel app: 24h (ref TASK-2023-0057, distance 0.4734)
-  - Mobile delivery personnel app: 20h (ref TASK-2024-0018, distance 0.5294)
-  - Analytics dashboard: 44h (ref TASK-2023-0020, distance 0.4083)
-  - Analytics dashboard: 41h (ref TASK-2022-0004, distance 0.411)
-  - Analytics dashboard: 36h (ref TASK-2022-0034, distance 0.4125)
-  - Analytics dashboard: 36h (ref TASK-2022-0033, distance 0.418)
-  - Analytics dashboard: 36h (ref TASK-2022-0035, distance 0.4181)
-  (20 matches total)
+RELIABILITY REPORT (analysis_agent)
+  overall_confidence : low
+  grounded_task_ratio: 0.256
+  - [high] Descubrimiento y diseño funcional: All tasks in this module have no historical match and lack reliability data.
+  - [high] Arquitectura de solución y modelo de datos: Most tasks have no historical match and lack grounded hours with low reliability scores.
+  - [high] Backend de negocio y API: Most tasks have no historical match and lack grounded hours with low reliability scores.
+  - [high] Integración con SAP (ERP) y migración inicial: All tasks have no historical match and lack reliability data.
+  - [high] Aplicación móvil de reparto (Android/iOS, offline): Most tasks have no historical match and lack grounded hours.
+  - [high] Panel de analítica y alertas: Most tasks have no historical match and lack reliability data.
+  - [medium] Infraestructura, DevOps y observabilidad: Low reliability scores for the tasks with matches, and many tasks have no match.
+  - [high] Seguridad y cumplimiento: Many tasks have low reliability scores, and some have no historical match.
+  - [medium] QA y pruebas: Although many tasks have matches, the reliability scores are low across the board.
+  - [high] Gestión de proyecto, lanzamiento y formación: Several tasks have no historical match and lack reliability data.
+  summary: The estimate is considered highly unreliable due to the overwhelming number of tasks with no historical match, alongside the presence of low reliability scores even where matches exist. The grounded_task_ratio is particularly low at 0.256, indicating that only about a quarter of tasks are somewhat grounded in historical data. Key modules like 'Descubrimiento y diseño funcional', 'Backend de negocio y API', and 'Integración con SAP (ERP) y migración inicial' are flagged as high-risk areas due to a complete lack of historical analogs. Areas such as 'QA y pruebas' and 'Infraestructura, DevOps y observabilidad' suffer from low reliability scores despite having some matched tasks. Overall confidence in this estimate is low, and a significant revision with more accurate grounding is recommended to ensure a realistic project assessment.
 
-ESTIMATE
-  - Business backend API: 5d — Rounded median of days: [3, 4, 6, 5, 5] derived from references.
-  - Integration with SAP ERP: 5d — Rounded median of days: [3, 5, 7, 7, 4] derived from references.
-  - Mobile delivery personnel app: 3d — Rounded median of days: [4, 4, 4, 3, 3] derived from references.
-  - Analytics dashboard: 5d — Rounded median of days: [6, 5, 5, 5, 5] derived from references.
-  TOTAL: 18d (confidence medium)
+COMMERCIAL PROPOSAL (proposal_agent — bonus)
+## ERP Integration and Mobile Application Development Proposal
+
+### Executive Summary
+This proposal outlines the development of an ERP integration and a mobile application designed for delivery operations, with a total estimated effort of 87 engineer-days. The scope involves core modules like functional design, API development, SAP integration, and infrastructure setup, though reliability concerns warrant a need for revision. High-risk areas include the lack of historical data for key components, emphasizing a requirement for a more grounded analysis before proceeding.
+
+### Scope of Work
+- **Descubrimiento y diseño funcional**: Initiating with 9 tasks focused on detailed functional design.
+- **Arquitectura de solución y modelo de datos**: Encompassing 10 tasks with a total of 45 hours dedicated to structuring the architecture and data model.
+- **Backend de negocio y API**: Includes 10 tasks requiring 77 hours, concentrating on business logic and API development.
+- **Integración con SAP (ERP) y migración inicial**: 10 tasks designed to cover SAP ERP integration, though currently registered as high risk without historical backing.
+- **Aplicación móvil de reparto (Android/iOS, offline)**: Spanning 10 tasks, with 53 hours allocated for developing the delivery mobile app.
+- **Panel de analítica y alertas**: Involves 8 tasks and 47 hours for the analytics dashboard and alerts panel.
+- **Infraestructura, DevOps y observabilidad**: Allocation of 131 hours across 8 tasks focusing on infrastructure and observability setup.
+- **Seguridad y cumplimiento**: 8 tasks to ensure implementation of security and compliance measures, over 54 hours.
+- **QA y pruebas**: Intense testing covered by 7 tasks over 209 hours due to its pivotal role in project verification.
+- **Gestión de proyecto, lanzamiento y formación**: 6 tasks that sum up to 79 hours for project management and training initiatives.
+
+### Estimation Reliability
+The reliability of this estimate is currently low. Key modules such as 'Descubrimiento y diseño funcional', 'Backend de negocio y API', and 'Integración con SAP (ERP) y migración inicial' show high-risk profiles due to the absence of historical data. Additional areas like 'QA y pruebas' and 'Infraestructura, DevOps y observabilidad' display low reliability scores despite having matched tasks. The overall confidence in the estimate remains low, suggesting the need for a significant revision with more solid grounding to ensure a realistic project assessment.

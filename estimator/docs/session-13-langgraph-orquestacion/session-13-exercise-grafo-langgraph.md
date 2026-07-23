@@ -1,5 +1,7 @@
 # Sesión 13 — Ejercicio resuelto: el flujo de estimación como grafo de LangGraph
 
+> ⚠️ **SUPERADO por la sesión en vivo.** Este documento describe el diseño del **pre-work** (el grafo secuencial de 5 nodos), tal como se entregó. La sesión en vivo lo hizo crecer hasta un **pipeline multi-agente** con dos handovers explícitos, dos puertas humanas (`interrupt()`) y paralelismo real (Send API) — `build_graph()` ya **no** cablea estos cinco nodos, aunque `nodes.py` se conserva intacto como el "antes" del que crece la sesión en vivo. Ver [`session-13-live-port.md`](session-13-live-port.md) para el estado actual del código. Este doc se conserva porque explica el **mecanismo base** (estado tipado, reducers, checkpointer, arista condicional) que la sesión en vivo mantiene y extiende.
+>
 > Resolución del ejercicio previo a la Sesión 13 ("Orquestación de agentes 🔴").
 > Resuelto **igual que el profesor** (rama oficial `session_13`, commit `4c23c2e` — "solved pre exercise session 13"), **adaptado a las divergencias de nuestro repo**.
 > Alcance del enunciado: reexpresar el bucle agéntico de la Sesión 12 como un **grafo explícito de LangGraph** (5 nodos, estado tipado con reducers, checkpointer sobre Postgres, observabilidad con Logfire), corriendo **en secuencial** — sin paralelismo, sin manejo de errores avanzado y sin intervención humana (`interrupt()`), que llegan en el directo. Niveles 1 y 2 obligatorios; Nivel 3 (primera arista condicional) opcional — **los tres implementados**.
