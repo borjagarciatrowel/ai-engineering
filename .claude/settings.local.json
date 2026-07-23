@@ -3,7 +3,8 @@
     "allow": [
       "Bash(curl -s http://localhost:8080/health)",
       "Bash(git add *)",
-      "Bash(git commit -m ' *)"
+      "Bash(git commit -m ' *)",
+      "Bash(uv run *)"
     ]
   }
 }
