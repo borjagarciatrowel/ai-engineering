@@ -1,0 +1,71 @@
+==============================================================================
+SESSION 14 — SUPERVISOR MULTI-AGENT RUN
+==============================================================================
+
+ROUTING (supervisor decisions)
+------------------------------------------------------------------------------
+  1. supervisor → requirements_extractor   [llm]  The state already has a transcript, and the requirements_extractor can produce the necessa
+  2. supervisor → budget_searcher          [llm]  The state has components identified, but no budget matches; the budget_searcher can now fi
+  3. supervisor → estimate_generator       [llm]  The state has budget_matches and needs an estimate, making the estimate_generator the next
+  4. supervisor → coherence_validator      [llm]  The estimate has been produced but not validated, so the coherence_validator is needed to 
+  5. supervisor → finish                   [llm]  All necessary estimates and validations have been completed, so we can finish the process.
+
+TOOL PRIVILEGE (declared allowlists)
+------------------------------------------------------------------------------
+  supervisor               : (no tools)
+  requirements_extractor   : (no tools)
+  budget_searcher          : search_budgets
+  estimate_generator       : derive_task_hours
+  coherence_validator      : validate_estimate
+
+AUDIT TRAIL (agent_contributions)
+------------------------------------------------------------------------------
+  [  ok  ] requirements_extractor   extract_requirements         11 requirements extracted from the transcript                (-, 2085ms)
+  [  ok  ] requirements_extractor   classify_components          10 components: Telemetry Collection and Distribution, Quantu (-, 1724ms)
+  [  ok  ] budget_searcher          tool:search_budgets          5 historical items for 'Telemetry Collection and Distributio (e39ddb4ec175, 1757ms)
+  [  ok  ] budget_searcher          tool:search_budgets          no historical items for 'Quantum Key Distribution (QKD) Impl (f2a3d0e9989b, 205ms)
+  [  ok  ] budget_searcher          tool:search_budgets          5 historical items for 'Mainframe Integration (integration)' (59f840c8bea1, 676ms)
+  [  ok  ] budget_searcher          tool:search_budgets          no historical items for 'Visual Panel for Antenna Status (fr (8271c36f3473, 212ms)
+  [  ok  ] budget_searcher          tool:search_budgets          1 historical items for 'Multilingual Support for Visual Pane (74b3e5c4baa9, 175ms)
+  [  ok  ] budget_searcher          tool:search_budgets          5 historical items for 'Login and Biometric Authentication S (6e059eaa9cb1, 184ms)
+  [  ok  ] budget_searcher          tool:search_budgets          2 historical items for 'Biometric Driver Development (backen (2202db7a5d64, 175ms)
+  [  ok  ] budget_searcher          tool:search_budgets          5 historical items for 'Hardware Security Module (HSM) Imple (bd7af535f157, 194ms)
+  [  ok  ] budget_searcher          tool:search_budgets          5 historical items for 'User and Role Management (backend)'; (4eb5acb9540d, 272ms)
+  [  ok  ] budget_searcher          tool:search_budgets          5 historical items for 'Reporting Functionality (backend)';  (1186b59efffa, 199ms)
+  [  ok  ] estimate_generator       tool:derive_task_hours       'Telemetry Collection and Distribution': 26h (reliability 0. (3f10b8633b89, 0ms)
+  [  ok  ] estimate_generator       tool:derive_task_hours       'Mainframe Integration': 51h (reliability 0.452) from 5 anal (d38123a025aa, 0ms)
+  [  ok  ] estimate_generator       tool:derive_task_hours       'Multilingual Support for Visual Panel': 12h (reliability 0. (95df0820c52e, 0ms)
+  [  ok  ] estimate_generator       tool:derive_task_hours       'Login and Biometric Authentication System': 24h (reliabilit (0aafdd300b1b, 0ms)
+  [  ok  ] estimate_generator       tool:derive_task_hours       'Biometric Driver Development': 41h (reliability 0.306) from (f760cd33274e, 0ms)
+  [  ok  ] estimate_generator       tool:derive_task_hours       'Hardware Security Module (HSM) Implementation': 25h (reliab (bb905a2d8768, 0ms)
+  [  ok  ] estimate_generator       tool:derive_task_hours       'User and Role Management': 31h (reliability 0.416) from 5 a (676a5fbf7dd6, 0ms)
+  [  ok  ] estimate_generator       tool:derive_task_hours       'Reporting Functionality': 37h (reliability 0.324) from 5 an (db32455212c5, 0ms)
+  [  ok  ] estimate_generator       consolidate_estimate         total 32d over 10 components (confidence medium)             (-, 5728ms)
+  [  ok  ] coherence_validator      tool:validate_estimate       2 issue(s) found                                             (b6e0b1b5ad30, 0ms)
+  [  ok  ] human                    review_decision              human approve: auto-approved by the S14 runner               (-, -)
+
+HUMAN REVIEW
+------------------------------------------------------------------------------
+  triggered: YES
+    - confidence 0.28 is below the 0.60 threshold
+  decision : approve
+
+ESTIMATE
+------------------------------------------------------------------------------
+  Telemetry Collection and Distribution [backend]               3d
+  Quantum Key Distribution (QKD) Implementation [integration]   — (unbudgeted)
+  Mainframe Integration [integration]                    7d
+  Visual Panel for Antenna Status [frontend]   — (unbudgeted)
+  Multilingual Support for Visual Panel [frontend]               2d
+  Login and Biometric Authentication System [frontend]               3d
+  Biometric Driver Development [backend]                 5d
+  Hardware Security Module (HSM) Implementation [infrastructure]               3d
+  User and Role Management [backend]                     4d
+  Reporting Functionality [backend]                      5d
+  TOTAL                                                 32d
+  status = validated · model confidence = medium
+
+ISSUES
+------------------------------------------------------------------------------
+  - 'Quantum Key Distribution (QKD) Implementation [integration]' has no historical reference (unbudgeted).
+  - 'Visual Panel for Antenna Status [frontend]' has no historical reference (unbudgeted).
